@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: school-events
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python app.py
+    envVars:
+      - key: SECURE_COOKIES
+        value: "1"
+      - key: DATABASE_PATH
+        value: /var/data/school.db
+    disk:
+      name: school-events-data
+      mountPath: /var/data
+      sizeGB: 1

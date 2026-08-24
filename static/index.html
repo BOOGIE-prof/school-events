@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>School Events — планирование школьных мероприятий</title>
+  <meta name="description" content="Планирование школьных мероприятий: доска идей, задачи, ответственные, календарь, архив и рейтинг." />
+  <link rel="icon" type="image/png" href="/emblem.png?v=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="root">
+    <div class="sea-boot">Загрузка приложения…</div>
+  </div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
+  <script type="text/babel" data-presets="react" src="/app.jsx"></script>
+  <script>
+    window.addEventListener("error", function (e) {
+      var root = document.getElementById("root");
+      if (root && !root.dataset.mounted) {
+        root.innerHTML =
+          '<div class="sea-boot sea-boot-error">Не удалось загрузить приложение.<br><small>' +
+          (e.message || "") +
+          "</small><br><small>Проверьте подключение к интернету и обновите страницу.</small></div>";
+      }
+    });
+  </script>
+</body>
+</html>
