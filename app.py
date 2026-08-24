@@ -615,6 +615,11 @@ ROUTES = [
 class Handler(BaseHTTPRequestHandler):
     server_version = "SchoolEvents"
     protocol_version = "HTTP/1.1"
+    _head_only = False  # при HEAD-запросе отдаём только заголовки
+
+    def _write_body(self, body):
+        if not self._head_only:
+            self.wfile.write(body)
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
@@ -635,7 +640,7 @@ class Handler(BaseHTTPRequestHandler):
         for key, value in extra_headers:
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(raw)
+        self._write_body(raw)
 
     def _cookie_header(self, token, clear=False):
         parts = [
@@ -718,7 +723,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(row["data"])))
         self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(row["name"]))
         self.end_headers()
-        self.wfile.write(row["data"])
+        self._write_body(row["data"])
 
     def _serve_static(self, path):
         rel = "index.html" if path in ("/", "") else path.lstrip("/")
@@ -735,10 +740,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache" if target.endswith(("index.html", ".jsx")) else "max-age=3600")
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def do_GET(self):
         self._handle("GET")
+
+    def do_HEAD(self):
+        """Проверки живости у хостингов ходят через HEAD — отвечаем заголовками без тела."""
+        self._head_only = True
+        try:
+            self._handle("GET")
+        finally:
+            self._head_only = False
 
     def do_POST(self):
         self._handle("POST")
