@@ -116,6 +116,8 @@ def api_create_idea(ctx):
 
 
 def api_delete_idea(ctx, idea_id):
+    """Идея убирается с доски, но остаётся в базе со статусом deleted:
+    удаление — нейтральное действие и не должно отнимать у автора уже начисленные очки."""
     me = require_user(ctx)
     with db.Tx() as conn:
         row = conn.execute("SELECT * FROM ideas WHERE id=?", (idea_id,)).fetchone()
@@ -123,7 +125,9 @@ def api_delete_idea(ctx, idea_id):
             raise HttpError(404, "Идея не найдена.")
         if row["author_id"] != me["id"] and me["role"] != "zavuch":
             raise HttpError(403, "Удалить идею может её автор или завуч.")
-        conn.execute("DELETE FROM ideas WHERE id=?", (idea_id,))
+        if row["status"] == "converted":
+            raise HttpError(400, "Идея уже стала мероприятием — её нельзя убрать с доски.")
+        conn.execute("UPDATE ideas SET status='deleted' WHERE id=?", (idea_id,))
         return state_after(conn, me)
 
 
@@ -557,27 +561,53 @@ def api_delete_plan_item(ctx, item_id):
         return state_after(conn, me)
 
 
-def api_annul(ctx):
+def api_update_profile(ctx):
+    """Каждый может изменить своё отображаемое имя."""
+    me = require_user(ctx)
+    name = clean(ctx["body"].get("name"), 120)
+    if not name:
+        raise HttpError(400, "Имя не может быть пустым.")
+    with db.Tx() as conn:
+        conn.execute("UPDATE users SET name=? WHERE id=?", (name, me["id"]))
+        fresh = conn.execute("SELECT * FROM users WHERE id=?", (me["id"],)).fetchone()
+        return state_after(conn, fresh)
+
+
+def api_adjust_points(ctx):
+    """Завуч начисляет или снимает произвольное количество очков."""
     me = require_zavuch(ctx)
     email = clean(ctx["body"].get("email"), 200).lower()
-    points = int(ctx["body"].get("points") or 0)
+    try:
+        points = int(ctx["body"].get("points"))
+    except (TypeError, ValueError):
+        raise HttpError(400, "Укажите количество очков числом.")
+    if points == 0:
+        raise HttpError(400, "Количество очков не может быть нулём.")
+    if abs(points) > 100000:
+        raise HttpError(400, "Слишком большое количество очков.")
     with db.Tx() as conn:
-        user_id = db.user_id_by_email(conn, email)
-        if not user_id:
+        target = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        if not target:
             raise HttpError(404, "Пользователь не найден.")
+        reason = clean(ctx["body"].get("reason"), 300)
         conn.execute(
-            "INSERT INTO annulled (user_id, points) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET points=excluded.points",
-            (user_id, max(0, points)),
+            "INSERT INTO point_adjustments (id, user_id, points, reason, created_by, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (db.uid("adj"), target["id"], points, reason, me["id"], db.now_iso()),
+        )
+        sign = "начислил(а)" if points > 0 else "снял(а)"
+        tail = f" — {reason}" if reason else ""
+        db.log_activity(
+            conn, me, "points_adjusted",
+            f"{sign} {abs(points)} очков участнику {target['name']}{tail}",
         )
         return state_after(conn, me)
 
 
-def api_restore_points(ctx):
+def api_delete_adjustment(ctx, adj_id):
     me = require_zavuch(ctx)
-    email = clean(ctx["body"].get("email"), 200).lower()
     with db.Tx() as conn:
-        user_id = db.user_id_by_email(conn, email)
-        conn.execute("DELETE FROM annulled WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM point_adjustments WHERE id=?", (adj_id,))
         return state_after(conn, me)
 
 
@@ -606,9 +636,10 @@ ROUTES = [
     ("POST", r"^/api/plan/weeks/([\w-]+)/items$", api_create_plan_item),
     ("PATCH", r"^/api/plan/items/([\w-]+)$", api_update_plan_item),
     ("DELETE", r"^/api/plan/items/([\w-]+)$", api_delete_plan_item),
+    ("PATCH", r"^/api/me$", api_update_profile),
     ("PATCH", r"^/api/users/(.+)$", api_update_user),
-    ("POST", r"^/api/points/annul$", api_annul),
-    ("POST", r"^/api/points/restore$", api_restore_points),
+    ("POST", r"^/api/points/adjust$", api_adjust_points),
+    ("DELETE", r"^/api/points/adjust/([\w-]+)$", api_delete_adjustment),
 ]
 
 

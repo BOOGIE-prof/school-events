@@ -173,7 +173,7 @@ function fileToBase64(file) {
   });
 }
 
-function computeRanking(events, ideas, users, annulled) {
+function computeRanking(events, ideas, users, adjustments) {
   const points = {}, doneTasks = {}, failedTasks = {}, ideasProposed = {}, ideasApproved = {};
 
   events.forEach((ev) => {
@@ -192,6 +192,7 @@ function computeRanking(events, ideas, users, annulled) {
     });
   });
 
+  // Удалённая идея очки не отнимает: автор уже вложил труд, а удаление — нейтральное действие
   ideas.forEach((idea) => {
     if (!idea.author) return;
     points[idea.author] = (points[idea.author] || 0) + POINTS_PER_IDEA;
@@ -202,16 +203,21 @@ function computeRanking(events, ideas, users, annulled) {
     }
   });
 
+  const manual = {};
+  (adjustments || []).forEach((a) => {
+    manual[a.email] = (manual[a.email] || 0) + a.points;
+  });
+
   return users
     .map((u) => {
       const rawPoints = points[u.email] || 0;
-      const deduction = (annulled || {})[u.email] || 0;
-      const finalPoints = rawPoints - deduction;
+      const adjusted = manual[u.email] || 0;
+      const finalPoints = rawPoints + adjusted;
       return {
         ...u,
         rawPoints,
+        adjusted,
         points: finalPoints,
-        hasDeduction: deduction > 0,
         tasksDone: doneTasks[u.email] || 0,
         tasksFailed: failedTasks[u.email] || 0,
         ideasProposed: ideasProposed[u.email] || 0,
@@ -256,6 +262,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const [tab, setTab] = useState("home");
+  const [profileOpen, setProfileOpen] = useState(false);
   const busyRef = useRef(false);
 
   const showToast = useCallback((text, ok = false) => {
@@ -310,7 +317,7 @@ function App() {
   const ideas = state?.ideas || [];
   const events = state?.events || [];
   const templates = state?.templates || [];
-  const annulled = state?.annulled || {};
+  const adjustments = state?.adjustments || [];
   const activity = state?.activity || [];
   const plan = state?.plan || {};
   const isZavuch = currentUser?.role === "zavuch";
@@ -334,8 +341,8 @@ function App() {
 
   const myRankInfo = useMemo(() => {
     if (!currentUser) return null;
-    return computeRanking(events, ideas, users, annulled).find((r) => r.email === currentUser.email) || null;
-  }, [events, ideas, users, annulled, currentUser]);
+    return computeRanking(events, ideas, users, adjustments).find((r) => r.email === currentUser.email) || null;
+  }, [events, ideas, users, adjustments, currentUser]);
 
   const handleLogout = async () => {
     try {
@@ -394,11 +401,18 @@ function App() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div className="sea-hide-mobile" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <UserCircle2 size={18} color="var(--text-faint)" />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{currentUser.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{isZavuch ? "Завуч" : "Учитель"}</div>
-                </div>
+                <button
+                  onClick={() => setProfileOpen(true)}
+                  className="sea-btn sea-btn-ghost"
+                  style={{ padding: "4px 8px", gap: 8 }}
+                  title="Изменить имя"
+                >
+                  <UserCircle2 size={18} color="var(--text-faint)" />
+                  <span style={{ textAlign: "left" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, display: "block" }}>{currentUser.name}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{isZavuch ? "Завуч" : "Учитель"}</span>
+                  </span>
+                </button>
                 {myRankInfo && (() => {
                   const earned = Math.max(0, myRankInfo.points);
                   return (
@@ -447,7 +461,7 @@ function App() {
         {tab === "home" && (
           <DashboardView
             currentUser={currentUser} isZavuch={isZavuch} events={events} ideas={ideas} users={users}
-            annulled={annulled} activity={activity} pendingApprovalCount={pendingApprovalCount}
+            adjustments={adjustments} activity={activity} pendingApprovalCount={pendingApprovalCount}
             myTaskNotifications={myTaskNotifications} onNavigate={setTab}
           />
         )}
@@ -466,13 +480,62 @@ function App() {
         {tab === "archive" && <ArchiveView events={events} users={users} run={run} />}
         {tab === "notifications" && <NotificationsView notifications={myTaskNotifications} onOpenEvents={() => setTab("events")} />}
         {tab === "leaderboard" && (
-          <LeaderboardView events={events} users={users} ideas={ideas} annulled={annulled} isZavuch={isZavuch} run={run} currentUser={currentUser} />
+          <LeaderboardView events={events} users={users} ideas={ideas} adjustments={adjustments} isZavuch={isZavuch} run={run} currentUser={currentUser} />
         )}
         {tab === "users" && <UsersAdminView users={users} currentUser={currentUser} isZavuch={isZavuch} run={run} />}
       </main>
 
+      {profileOpen && (
+        <ProfileModal currentUser={currentUser} onClose={() => setProfileOpen(false)} run={run} />
+      )}
+
       {toast && <Toast toast={toast} />}
     </div>
+  );
+}
+
+function ProfileModal({ currentUser, onClose, run }) {
+  const [name, setName] = useState(currentUser.name);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await run("PATCH", "/api/me", { name: name.trim() });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Мой профиль" onClose={onClose}>
+      <div className="sea-field">
+        <label className="sea-label">Имя и фамилия</label>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) save(); }}
+        />
+        <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 5 }}>
+          Так вас видят коллеги — в рейтинге, в задачах и в плане месяца.
+        </div>
+      </div>
+      <div className="sea-field">
+        <label className="sea-label">Email</label>
+        <input value={currentUser.email} disabled style={{ background: "var(--surface)", color: "var(--text-faint)" }} />
+        <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 5 }}>
+          Email — это логин, он не меняется. Роль назначает завуч.
+        </div>
+      </div>
+      <ModalFooter>
+        <button className="sea-btn sea-btn-ghost" onClick={onClose}>Отмена</button>
+        <button className="sea-btn sea-btn-primary" disabled={!name.trim() || name.trim() === currentUser.name || busy} onClick={save}>
+          Сохранить
+        </button>
+      </ModalFooter>
+    </Modal>
   );
 }
 
@@ -572,11 +635,11 @@ function AuthScreen({ onLogin, onRegister }) {
 /* ----------------------------------------------------------------------
    ГЛАВНАЯ / ДАШБОРД
 ---------------------------------------------------------------------- */
-function DashboardView({ currentUser, isZavuch, events, ideas, users, annulled, activity, pendingApprovalCount, myTaskNotifications, onNavigate }) {
-  const ranking = useMemo(() => computeRanking(events, ideas, users, annulled), [events, ideas, users, annulled]);
+function DashboardView({ currentUser, isZavuch, events, ideas, users, adjustments, activity, pendingApprovalCount, myTaskNotifications, onNavigate }) {
+  const ranking = useMemo(() => computeRanking(events, ideas, users, adjustments), [events, ideas, users, adjustments]);
   const myRank = ranking.findIndex((r) => r.email === currentUser.email);
   const myPoints = myRank >= 0 ? ranking[myRank].points : 0;
-  const openIdeasCount = ideas.filter((i) => i.status !== "converted").length;
+  const openIdeasCount = ideas.filter((i) => i.status !== "converted" && i.status !== "deleted").length;
 
   const upcoming = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -754,7 +817,7 @@ function IdeasBoard({ ideas, currentUser, isZavuch, templates, run, onJumpToEven
   const sorted = useMemo(
     () =>
       [...ideas]
-        .filter((i) => i.status !== "converted")
+        .filter((i) => i.status !== "converted" && i.status !== "deleted")
         .sort((a, b) => {
           const ra = Object.values(a.reactions || {}).flat().length;
           const rb = Object.values(b.reactions || {}).flat().length;
@@ -2067,11 +2130,14 @@ function NotificationsView({ notifications, onOpenEvents }) {
 /* ----------------------------------------------------------------------
    РЕЙТИНГ
 ---------------------------------------------------------------------- */
-function LeaderboardView({ events, users, ideas, annulled, isZavuch, run, currentUser }) {
-  const ranking = useMemo(() => computeRanking(events, ideas, users, annulled), [events, users, ideas, annulled]);
-  const [confirmingEmail, setConfirmingEmail] = useState(null);
+function LeaderboardView({ events, users, ideas, adjustments, isZavuch, run, currentUser }) {
+  const ranking = useMemo(() => computeRanking(events, ideas, users, adjustments), [events, users, ideas, adjustments]);
+  const [adjusting, setAdjusting] = useState(null);
   const maxPoints = Math.max(1, ...ranking.map((r) => r.points));
   const medals = ["🥇", "🥈", "🥉"];
+
+  // карточка в списке могла обновиться после начисления — берём свежие данные
+  const adjustingUser = adjusting ? ranking.find((r) => r.email === adjusting.email) : null;
 
   return (
     <div>
@@ -2119,6 +2185,11 @@ function LeaderboardView({ events, users, ideas, annulled, isZavuch, run, curren
                         {" · "}{u.tasksFailed} не выполнено (−{u.tasksFailed * POINTS_PER_FAILED_TASK})
                       </span>
                     )}
+                    {u.adjusted !== 0 && (
+                      <span style={{ color: u.adjusted > 0 ? "var(--success)" : "var(--danger)", fontWeight: 600 }}>
+                        {" · "}от завуча {u.adjusted > 0 ? "+" : "−"}{Math.abs(u.adjusted)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ textAlign: "right", whiteSpace: "nowrap", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
@@ -2129,21 +2200,9 @@ function LeaderboardView({ events, users, ideas, annulled, isZavuch, run, curren
                     <div style={{ fontSize: 10.5, color: "var(--text-faint)" }}>очков</div>
                   </div>
                   {isZavuch && (
-                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                      {confirmingEmail === u.email ? (
-                        <>
-                          <button className="sea-btn sea-btn-danger" style={{ padding: "4px 8px", fontSize: 11.5 }} onClick={() => { setConfirmingEmail(null); run("POST", "/api/points/annul", { email: u.email, points: u.rawPoints }); }}>Точно?</button>
-                          <button className="sea-btn sea-btn-ghost" style={{ padding: "4px 8px", fontSize: 11.5 }} onClick={() => setConfirmingEmail(null)}>Отмена</button>
-                        </>
-                      ) : (
-                        <>
-                          <button className="sea-btn sea-btn-danger" style={{ padding: "4px 8px", fontSize: 11.5 }} onClick={() => setConfirmingEmail(u.email)}>Аннулировать</button>
-                          {u.hasDeduction && (
-                            <button className="sea-btn" style={{ padding: "4px 8px", fontSize: 11.5 }} onClick={() => run("POST", "/api/points/restore", { email: u.email })}>Восстановить</button>
-                          )}
-                        </>
-                      )}
-                    </div>
+                    <button className="sea-btn" style={{ padding: "4px 9px", fontSize: 11.5 }} onClick={() => setAdjusting(u)}>
+                      <Star size={12} /> Изменить очки
+                    </button>
                   )}
                 </div>
               </div>
@@ -2151,7 +2210,120 @@ function LeaderboardView({ events, users, ideas, annulled, isZavuch, run, curren
           })}
         </div>
       )}
+
+      {adjustingUser && (
+        <AdjustPointsModal
+          user={adjustingUser}
+          adjustments={adjustments.filter((a) => a.email === adjustingUser.email)}
+          onClose={() => setAdjusting(null)}
+          run={run}
+        />
+      )}
     </div>
+  );
+}
+
+function AdjustPointsModal({ user, adjustments, onClose, run }) {
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const value = parseInt(amount, 10);
+  const valid = Number.isFinite(value) && value !== 0;
+
+  const submit = async (points) => {
+    setBusy(true);
+    try {
+      await run("POST", "/api/points/adjust", { email: user.email, points, reason: reason.trim() });
+      setAmount("");
+      setReason("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Очки — ${user.name}`} onClose={onClose}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, background: "var(--surface)", padding: "12px 14px", borderRadius: 10, marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: user.points < 0 ? "var(--danger)" : "var(--accent)", lineHeight: 1.1 }}>{user.points}</div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>очков сейчас</div>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-soft)" }}>
+          Заработано за задачи и идеи: {user.rawPoints}
+          {user.adjusted !== 0 && (
+            <>
+              <br />Ручные начисления: {user.adjusted > 0 ? "+" : "−"}{Math.abs(user.adjusted)}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="sea-field">
+        <label className="sea-label">Сколько очков</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {[100, 50, -50, -100].map((n) => (
+            <button
+              key={n}
+              className="sea-btn"
+              style={{ padding: "5px 11px", color: n > 0 ? "var(--success)" : "var(--danger)" }}
+              disabled={busy}
+              onClick={() => submit(n)}
+            >
+              {n > 0 ? `+${n}` : n}
+            </button>
+          ))}
+        </div>
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="или своё число: 250 либо -250"
+          onKeyDown={(e) => { if (e.key === "Enter" && valid) submit(value); }}
+        />
+      </div>
+
+      <div className="sea-field">
+        <label className="sea-label">Причина — увидят все в ленте активности</label>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="напр. помощь на городском конкурсе" />
+      </div>
+
+      <button
+        className="sea-btn sea-btn-primary"
+        style={{ width: "100%", justifyContent: "center" }}
+        disabled={!valid || busy}
+        onClick={() => submit(value)}
+      >
+        {valid && value > 0 ? `Начислить ${value}` : valid ? `Снять ${Math.abs(value)}` : "Укажите количество"}
+      </button>
+
+      {adjustments.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="sea-label">История начислений</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {adjustments.map((a) => (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--surface)", padding: "8px 10px", borderRadius: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontWeight: 700, color: a.points > 0 ? "var(--success)" : "var(--danger)" }}>
+                    {a.points > 0 ? `+${a.points}` : a.points}
+                  </span>
+                  {a.reason && <span style={{ color: "var(--text-soft)" }}> — {a.reason}</span>}
+                  <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{a.byName} · {timeAgo(a.createdAt)}</div>
+                </div>
+                <button
+                  className="sea-btn sea-btn-ghost sea-btn-danger"
+                  style={{ padding: 5 }}
+                  title="Отменить это начисление"
+                  onClick={() => run("DELETE", `/api/points/adjust/${a.id}`)}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

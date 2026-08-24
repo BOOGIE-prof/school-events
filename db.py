@@ -146,9 +146,14 @@ CREATE TABLE IF NOT EXISTS plan_items (
   position         INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS annulled (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  points  INTEGER NOT NULL DEFAULT 0
+-- Ручные корректировки очков: завуч может прибавить или снять любое количество
+CREATE TABLE IF NOT EXISTS point_adjustments (
+  id         TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  points     INTEGER NOT NULL,          -- со знаком: плюс начисляет, минус снимает
+  reason     TEXT NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS activity (
@@ -212,7 +217,8 @@ DEFAULT_TEMPLATES = [
 
 
 def now_iso():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # миллисекунды нужны, чтобы события одной секунды сохраняли порядок
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
 def uid(prefix):
@@ -509,10 +515,18 @@ def full_state(conn, me):
         for t in conn.execute("SELECT * FROM templates ORDER BY position, id").fetchall()
     ]
 
-    annulled = {
-        email_by_id.get(a["user_id"], ""): a["points"]
-        for a in conn.execute("SELECT * FROM annulled").fetchall()
-    }
+    name_by_id = {u["id"]: u["name"] for u in users}
+    adjustments = [
+        {
+            "id": a["id"],
+            "email": email_by_id.get(a["user_id"], ""),
+            "points": a["points"],
+            "reason": a["reason"],
+            "byName": name_by_id.get(a["created_by"], "—"),
+            "createdAt": a["created_at"],
+        }
+        for a in conn.execute("SELECT * FROM point_adjustments ORDER BY created_at DESC").fetchall()
+    ]
 
     # айлық жоспар: {'2026-09': [{weekNo, topic, items: [...]}, ...]}
     items_by_week = {}
@@ -550,7 +564,7 @@ def full_state(conn, me):
         "ideas": ideas,
         "events": events,
         "templates": templates,
-        "annulled": annulled,
+        "adjustments": adjustments,
         "activity": activity,
         "plan": plan,
     }
