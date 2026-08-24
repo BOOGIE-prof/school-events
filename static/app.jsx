@@ -1347,6 +1347,8 @@ function EventDetailModal({ event, users, isZavuch, conflicts, run, onClose }) {
 
 function TaskRow({ task, users, onChange, onRemove }) {
   const [editingResp, setEditingResp] = useState(false);
+  const [editingComment, setEditingComment] = useState(false);
+  const [commentDraft, setCommentDraft] = useState(task.comment || "");
   const [flash, setFlash] = useState(false);
   const respNames = users.filter((u) => task.responsible?.includes(u.email)).map((u) => u.name);
   const dleft = daysUntil(task.deadline);
@@ -1360,10 +1362,74 @@ function TaskRow({ task, users, onChange, onRemove }) {
     onChange({ status: val });
   };
 
+  const startEditingComment = () => {
+    setCommentDraft(task.comment || "");
+    setEditingComment(true);
+  };
+  const saveComment = () => {
+    setEditingComment(false);
+    if (commentDraft.trim() !== (task.comment || "")) onChange({ comment: commentDraft.trim() });
+  };
+  const cancelComment = () => {
+    setCommentDraft(task.comment || "");
+    setEditingComment(false);
+  };
+
   return (
     <tr>
       <td data-label="Задача" style={{ minWidth: 140, fontWeight: 600 }}>{task.title}</td>
-      <td data-label="Комментарий" style={{ minWidth: 180, color: "var(--text-soft)" }}>{task.comment || "—"}</td>
+      <td data-label="Комментарий" style={{ minWidth: 180, color: "var(--text-soft)" }}>
+        {editingComment ? (
+          <div style={{ minWidth: 170 }}>
+            <textarea
+              autoFocus
+              rows={2}
+              value={commentDraft}
+              // курсор — в конец текста, чтобы сразу дописывать, а не вставлять в начало
+              onFocus={(e) => e.target.setSelectionRange(e.target.value.length, e.target.value.length)}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              onBlur={saveComment}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveComment(); }
+                if (e.key === "Escape") { e.preventDefault(); cancelComment(); }
+              }}
+              placeholder="Что конкретно нужно сделать"
+              style={{ padding: "5px 8px", resize: "vertical" }}
+            />
+            <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+              {/* onMouseDown гасим, иначе поле потеряет фокус и сохранится до нажатия */}
+              <button
+                className="sea-btn"
+                style={{ padding: "3px 9px", fontSize: 11.5 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={saveComment}
+              >
+                Готово
+              </button>
+              <button
+                className="sea-btn sea-btn-ghost"
+                style={{ padding: "3px 9px", fontSize: 11.5 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={cancelComment}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            className="sea-btn sea-btn-ghost"
+            style={{
+              padding: "4px 6px", fontWeight: 400, textAlign: "left", whiteSpace: "normal",
+              color: task.comment ? "var(--text-soft)" : "var(--text-faint)", width: "100%", justifyContent: "flex-start",
+            }}
+            title="Нажмите, чтобы изменить комментарий"
+            onClick={startEditingComment}
+          >
+            {task.comment || "Добавить комментарий…"}
+          </button>
+        )}
+      </td>
       <td data-label="Ответственные" style={{ minWidth: 150 }}>
         {editingResp ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 220 }}>
