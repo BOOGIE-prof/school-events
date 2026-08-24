@@ -400,15 +400,16 @@ function App() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div className="sea-hide-mobile" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {/* на телефоне остаётся только иконка — но кнопка профиля видна всегда */}
                 <button
                   onClick={() => setProfileOpen(true)}
                   className="sea-btn sea-btn-ghost"
                   style={{ padding: "4px 8px", gap: 8 }}
-                  title="Изменить имя"
+                  title="Мой профиль — изменить имя"
                 >
                   <UserCircle2 size={18} color="var(--text-faint)" />
-                  <span style={{ textAlign: "left" }}>
+                  <span className="sea-hide-mobile" style={{ textAlign: "left" }}>
                     <span style={{ fontSize: 13, fontWeight: 600, display: "block" }}>{currentUser.name}</span>
                     <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{isZavuch ? "Завуч" : "Учитель"}</span>
                   </span>
@@ -416,7 +417,7 @@ function App() {
                 {myRankInfo && (() => {
                   const earned = Math.max(0, myRankInfo.points);
                   return (
-                    <div style={{ width: 74, marginLeft: 4 }} title={`${earned % 500}/500 очков до уровня ${myRankInfo.level + 1}`}>
+                    <div className="sea-hide-mobile" style={{ width: 74, marginLeft: 4 }} title={`${earned % 500}/500 очков до уровня ${myRankInfo.level + 1}`}>
                       <div style={{ fontSize: 9.5, color: myRankInfo.points < 0 ? "var(--danger)" : "var(--text-faint)", marginBottom: 2, whiteSpace: "nowrap" }}>
                         {myRankInfo.points < 0 ? `${myRankInfo.points} очков` : `Ур. ${myRankInfo.level} · ${500 - (earned % 500)} до след.`}
                       </div>
@@ -482,7 +483,7 @@ function App() {
         {tab === "leaderboard" && (
           <LeaderboardView events={events} users={users} ideas={ideas} adjustments={adjustments} isZavuch={isZavuch} run={run} currentUser={currentUser} />
         )}
-        {tab === "users" && <UsersAdminView users={users} currentUser={currentUser} isZavuch={isZavuch} run={run} />}
+        {tab === "users" && <UsersAdminView users={users} currentUser={currentUser} isZavuch={isZavuch} run={run} onEditProfile={() => setProfileOpen(true)} />}
       </main>
 
       {profileOpen && (
@@ -2330,12 +2331,12 @@ function AdjustPointsModal({ user, adjustments, onClose, run }) {
 /* ----------------------------------------------------------------------
    ПОЛЬЗОВАТЕЛИ
 ---------------------------------------------------------------------- */
-function UsersAdminView({ users, currentUser, isZavuch, run }) {
+function UsersAdminView({ users, currentUser, isZavuch, run, onEditProfile }) {
   return (
     <div>
       <SectionHeader
         title="Пользователи и роли"
-        subtitle={isZavuch ? "Управление ролями сотрудников школы." : "Список сотрудников. Менять роли может только завуч."}
+        subtitle={isZavuch ? "Управление ролями сотрудников школы. Своё имя можно изменить карандашом рядом с ним." : "Список сотрудников. Своё имя можно изменить карандашом рядом с ним, роли назначает завуч."}
       />
       <div className="sea-card">
         <table className="sea-table">
@@ -2344,7 +2345,20 @@ function UsersAdminView({ users, currentUser, isZavuch, run }) {
             {users.map((u) => (
               <tr key={u.email}>
                 <td style={{ fontWeight: 600 }}>
-                  {u.name} {u.email === currentUser.email && <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>(вы)</span>}
+                  {u.name}
+                  {u.email === currentUser.email && (
+                    <>
+                      {" "}<span style={{ color: "var(--text-faint)", fontWeight: 400 }}>(вы)</span>
+                      <button
+                        className="sea-btn sea-btn-ghost"
+                        style={{ padding: 4, marginLeft: 4, verticalAlign: "middle" }}
+                        title="Изменить своё имя"
+                        onClick={onEditProfile}
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    </>
+                  )}
                 </td>
                 <td style={{ color: "var(--text-soft)" }}>{u.email}</td>
                 <td>
@@ -2416,12 +2430,12 @@ function PrizeBanner({ ranking, currentUser, onOpenLeaderboard }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
-        <div style={{ textAlign: "center", background: "rgba(255,255,255,0.13)", borderRadius: 10, padding: "8px 14px", minWidth: 82 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", flex: "1 1 260px", minWidth: 0 }}>
+        <div style={{ textAlign: "center", background: "rgba(255,255,255,0.13)", borderRadius: 10, padding: "8px 14px", minWidth: 82, flexShrink: 0 }}>
           <div style={{ fontSize: 21, fontWeight: 800, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{daysLeft}</div>
           <div style={{ fontSize: 10.5, opacity: 0.85 }}>{daysWord(daysLeft)} до итогов</div>
         </div>
-        <div style={{ fontSize: 12.5, maxWidth: 250, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+        <div style={{ fontSize: 12.5, flex: "1 1 150px", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
           {started && (
             <div style={{ fontWeight: 700 }}>
               Лидер: {leader.name} — {leader.points}
