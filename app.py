@@ -765,9 +765,14 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(os.environ.get("PORT", 8000))
+    if db.USE_PG:
+        source = "PostgreSQL " + db.DATABASE_URL.split("@")[-1].split("?")[0]
+    else:
+        source = "SQLite " + db.DB_PATH
+    print(f"База данных: {source}", flush=True)
     db.connect()
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"School Events запущен: http://localhost:{port}  (база: {db.DB_PATH})", flush=True)
+    print(f"School Events запущен: http://localhost:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

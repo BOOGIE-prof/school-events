@@ -1,4 +1,12 @@
-"""SQLite storage layer for the school events app."""
+"""Слой хранения данных.
+
+Работает с двумя базами и сам выбирает нужную:
+  * задана переменная DATABASE_URL (postgres://…) — используется PostgreSQL;
+  * иначе — файл SQLite (по умолчанию data/school.db), удобно для локальной работы.
+
+SQL в коде пишется в стиле SQLite (плейсхолдер «?»), для PostgreSQL он
+переписывается автоматически.
+"""
 
 import os
 import re
@@ -9,17 +17,23 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+USE_PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "school.db"))
 
 _lock = threading.RLock()
 _conn = None
 
+# различия диалектов
+_TYPES = {
+    "SERIAL": "SERIAL PRIMARY KEY" if USE_PG else "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "BLOB": "BYTEA" if USE_PG else "BLOB",
+}
+
 SCHEMA = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  id            {SERIAL},
   email         TEXT NOT NULL UNIQUE,
   name          TEXT NOT NULL,
   role          TEXT NOT NULL DEFAULT 'teacher',
@@ -97,7 +111,7 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 
 CREATE TABLE IF NOT EXISTS template_tasks (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  id          {SERIAL},
   template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
   title       TEXT NOT NULL,
   comment     TEXT NOT NULL DEFAULT '',
@@ -110,7 +124,7 @@ CREATE TABLE IF NOT EXISTS files (
   name       TEXT NOT NULL,
   mime       TEXT NOT NULL DEFAULT 'application/octet-stream',
   size       INTEGER NOT NULL DEFAULT 0,
-  data       BLOB NOT NULL,
+  data       {BLOB} NOT NULL,
   created_at TEXT NOT NULL
 );
 
@@ -205,14 +219,80 @@ def uid(prefix):
     return f"{prefix}-{secrets.token_hex(8)}"
 
 
+class Connection:
+    """Единый интерфейс к SQLite и PostgreSQL.
+
+    SQL пишется в стиле SQLite; для PostgreSQL «?» превращается в «%s».
+    Если соединение с PostgreSQL оборвалось (например, бесплатная база уснула),
+    запрос повторяется один раз на свежем соединении.
+    """
+
+    def __init__(self):
+        self.raw = None
+        self._open()
+
+    def _open(self):
+        if USE_PG:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            self.raw = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, connect_timeout=10)
+        else:
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            self.raw = sqlite3.connect(DB_PATH, check_same_thread=False)
+            self.raw.row_factory = sqlite3.Row
+            self.raw.execute("PRAGMA journal_mode=WAL")
+            self.raw.execute("PRAGMA foreign_keys=ON")
+
+    def execute(self, sql, params=()):
+        if not USE_PG:
+            return self.raw.execute(sql, params)
+        try:
+            return self._pg_execute(sql, params)
+        except Exception as err:
+            if not _is_connection_error(err):
+                raise
+            try:
+                self.raw.close()
+            except Exception:
+                pass
+            self._open()
+            return self._pg_execute(sql, params)
+
+    def _pg_execute(self, sql, params):
+        cur = self.raw.cursor()
+        cur.execute(sql.replace("?", "%s"), params)
+        return cur
+
+    def commit(self):
+        self.raw.commit()
+
+    def rollback(self):
+        try:
+            self.raw.rollback()
+        except Exception:
+            pass
+
+    def init_schema(self):
+        ddl = SCHEMA.format(**_TYPES)
+        if USE_PG:
+            cur = self.raw.cursor()
+            cur.execute(ddl)
+        else:
+            self.raw.executescript(ddl)
+        self.commit()
+
+
+def _is_connection_error(err):
+    name = type(err).__name__
+    return name in ("OperationalError", "InterfaceError", "AdminShutdown") or "server closed" in str(err).lower()
+
+
 def connect():
     global _conn
     with _lock:
         if _conn is None:
-            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-            _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-            _conn.row_factory = sqlite3.Row
-            _conn.executescript(SCHEMA)
+            _conn = Connection()
+            _conn.init_schema()
             _seed_templates(_conn)
             _conn.commit()
         return _conn
@@ -378,7 +458,7 @@ def full_state(conn, me):
         resp.setdefault(r["task_id"], []).append(email_by_id.get(r["user_id"], ""))
 
     tasks_by_event = {}
-    for t in conn.execute("SELECT * FROM tasks ORDER BY position, rowid").fetchall():
+    for t in conn.execute("SELECT * FROM tasks ORDER BY position, id").fetchall():
         tasks_by_event.setdefault(t["event_id"], []).append({
             "id": t["id"],
             "title": t["title"],
@@ -426,7 +506,7 @@ def full_state(conn, me):
         tpl_tasks.setdefault(t["template_id"], []).append({"title": t["title"], "comment": t["comment"]})
     templates = [
         {"id": t["id"], "name": t["name"], "tasks": tpl_tasks.get(t["id"], [])}
-        for t in conn.execute("SELECT * FROM templates ORDER BY position, rowid").fetchall()
+        for t in conn.execute("SELECT * FROM templates ORDER BY position, id").fetchall()
     ]
 
     annulled = {
@@ -436,7 +516,7 @@ def full_state(conn, me):
 
     # айлық жоспар: {'2026-09': [{weekNo, topic, items: [...]}, ...]}
     items_by_week = {}
-    for i in conn.execute("SELECT * FROM plan_items ORDER BY position, rowid").fetchall():
+    for i in conn.execute("SELECT * FROM plan_items ORDER BY position, id").fetchall():
         items_by_week.setdefault(i["week_id"], []).append({
             "id": i["id"],
             "title": i["title"],
