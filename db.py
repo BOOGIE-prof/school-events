@@ -156,6 +156,23 @@ CREATE TABLE IF NOT EXISTS point_adjustments (
   created_at TEXT NOT NULL
 );
 
+-- Служебные настройки приложения (например, дата последней рассылки напоминаний)
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Подписки браузеров на push-уведомления: у одного человека их несколько
+-- (телефон, рабочий компьютер), поэтому ключ — endpoint, а не пользователь
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint   TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_sent  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS activity (
   id         TEXT PRIMARY KEY,
   actor_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -165,6 +182,7 @@ CREATE TABLE IF NOT EXISTS activity (
   created_at TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_plan_weeks_month ON plan_weeks(month);
 CREATE INDEX IF NOT EXISTS idx_plan_items_week ON plan_items(week_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_event ON tasks(event_id);

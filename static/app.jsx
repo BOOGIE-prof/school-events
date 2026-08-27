@@ -571,6 +571,137 @@ function InstallPrompt() {
   );
 }
 
+/* Включение push-уведомлений. Живёт в профиле: разрешение спрашивает браузер,
+   поэтому кнопку нажимает сам человек — иначе Safari и Chrome запрос игнорируют. */
+function PushSettings() {
+  const [state, setState] = useState("loading"); // loading | unsupported | off | on | denied
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+
+  const supported = typeof window !== "undefined"
+    && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  useEffect(() => {
+    if (!supported) { setState("unsupported"); return; }
+    (async () => {
+      try {
+        if (Notification.permission === "denied") { setState("denied"); return; }
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setState(sub ? "on" : "off");
+      } catch (e) {
+        setState("unsupported");
+      }
+    })();
+  }, [supported]);
+
+  const enable = async () => {
+    setBusy(true);
+    setNote("");
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") { setState(permission === "denied" ? "denied" : "off"); return; }
+
+      const config = await fetch("/api/push/config").then((r) => r.json());
+      if (!config.enabled || !config.publicKey) {
+        setNote("Уведомления пока не настроены на сервере.");
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+      });
+      const res = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      if (!res.ok) throw new Error("сервер не принял подписку");
+      setState("on");
+      setNote("Готово — сейчас придёт проверочное уведомление.");
+      fetch("/api/push/test", { method: "POST" });
+    } catch (err) {
+      setNote("Не получилось включить: " + (err.message || err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
+      }
+      setState("off");
+      setNote("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+
+  return (
+    <div className="sea-field" style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 0 }}>
+      <label className="sea-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <Bell size={13} /> Уведомления о задачах
+      </label>
+
+      {state === "loading" && <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Проверяю…</div>}
+
+      {state === "unsupported" && (
+        <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>
+          {isIos && !standalone
+            ? "На iPhone уведомления работают только после установки приложения на экран «Домой»: «Поделиться» → «На экран „Домой“», затем откройте приложение с иконки и включите уведомления здесь."
+            : "Этот браузер не поддерживает уведомления."}
+        </div>
+      )}
+
+      {state === "denied" && (
+        <div style={{ fontSize: 12.5, color: "var(--danger)" }}>
+          Уведомления запрещены в настройках браузера. Разрешите их для этого сайта и вернитесь сюда.
+        </div>
+      )}
+
+      {(state === "off" || state === "on") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button
+            className={state === "on" ? "sea-btn" : "sea-btn sea-btn-primary"}
+            disabled={busy}
+            onClick={state === "on" ? disable : enable}
+          >
+            {busy ? "Секунду…" : state === "on" ? "Отключить" : "Включить уведомления"}
+          </button>
+          <span style={{ fontSize: 12, color: state === "on" ? "var(--success)" : "var(--text-faint)" }}>
+            {state === "on" ? "Включены на этом устройстве" : "Придут, когда вам назначат задачу или подойдёт срок"}
+          </span>
+        </div>
+      )}
+
+      {note && <div style={{ fontSize: 12, color: "var(--text-soft)", marginTop: 6 }}>{note}</div>}
+    </div>
+  );
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
 function ProfileModal({ currentUser, onClose, run }) {
   const [name, setName] = useState(currentUser.name);
   const [busy, setBusy] = useState(false);
@@ -606,6 +737,7 @@ function ProfileModal({ currentUser, onClose, run }) {
           Email — это логин, он не меняется. Роль назначает завуч.
         </div>
       </div>
+      <PushSettings />
       <ModalFooter>
         <button className="sea-btn sea-btn-ghost" onClick={onClose}>Отмена</button>
         <button className="sea-btn sea-btn-primary" disabled={!name.trim() || name.trim() === currentUser.name || busy} onClick={save}>

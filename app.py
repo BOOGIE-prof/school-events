@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 
 import db
+import push
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -347,16 +348,31 @@ def api_create_task(ctx, event_id):
             "INSERT INTO tasks (id, event_id, title, comment, deadline, status, position) VALUES (?,?,?,?,?, 'todo', ?)",
             (task_id, event_id, title, clean(body.get("comment"), 2000), clean_date(body.get("deadline")), pos),
         )
-        _set_responsible(conn, task_id, body.get("responsible") or [])
-        return state_after(conn, me)
+        newly_assigned = _set_responsible(conn, task_id, body.get("responsible") or [], notify_by=me["id"])
+        event_title = conn.execute("SELECT title FROM events WHERE id=?", (event_id,)).fetchone()["title"]
+        payload = state_after(conn, me)
+
+    if newly_assigned:
+        push.notify_task_assigned(None, title, event_title, clean_date(body.get("deadline")), newly_assigned)
+    return payload
 
 
-def _set_responsible(conn, task_id, emails):
+def _set_responsible(conn, task_id, emails, notify_by=None):
+    """Переназначает ответственных. Возвращает id тех, кого назначили только что —
+    им уходит push-уведомление (уже назначенных повторно не беспокоим)."""
+    before = {
+        row["user_id"]
+        for row in conn.execute("SELECT user_id FROM task_responsible WHERE task_id=?", (task_id,)).fetchall()
+    }
     conn.execute("DELETE FROM task_responsible WHERE task_id=?", (task_id,))
+    after = []
     for email in list(dict.fromkeys(emails))[:50]:
         user_id = db.user_id_by_email(conn, clean(email, 200).lower())
         if user_id:
             conn.execute("INSERT INTO task_responsible (task_id, user_id) VALUES (?,?)", (task_id, user_id))
+            after.append(user_id)
+    # себе уведомление не шлём: человек и так знает, что взял задачу
+    return [uid for uid in after if uid not in before and uid != notify_by]
 
 
 def api_update_task(ctx, task_id):
@@ -385,15 +401,24 @@ def api_update_task(ctx, task_id):
             fields.append("status=?"); values.append(body["status"])
         if fields:
             conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id=?", (*values, task_id))
+        newly_assigned = []
         if "responsible" in body:
-            _set_responsible(conn, task_id, body["responsible"] or [])
+            newly_assigned = _set_responsible(conn, task_id, body["responsible"] or [], notify_by=me["id"])
 
         if body.get("status") == "done" and task["status"] != "done":
             db.log_activity(
                 conn, me, "task_done",
                 f"выполнил(а) задачу «{task['title']}» в мероприятии «{task['event_title']}»",
             )
-        return state_after(conn, me)
+        payload = state_after(conn, me)
+
+    # уведомляем уже после закрытия транзакции: сеть не должна держать базу
+    if newly_assigned:
+        deadline = clean_date(body.get("deadline")) if "deadline" in body else task["deadline"]
+        push.notify_task_assigned(
+            None, clean(body.get("title"), 200) or task["title"], task["event_title"], deadline, newly_assigned
+        )
+    return payload
 
 
 def api_delete_task(ctx, task_id):
@@ -561,6 +586,47 @@ def api_delete_plan_item(ctx, item_id):
         return state_after(conn, me)
 
 
+def api_push_config(ctx):
+    """Открытый ключ для подписки — клиент запрашивает его перед включением уведомлений."""
+    require_user(ctx)
+    return {"enabled": push.ENABLED, "publicKey": push.VAPID_PUBLIC_KEY}
+
+
+def api_push_subscribe(ctx):
+    me = require_user(ctx)
+    with db.Tx() as conn:
+        if not push.save_subscription(conn, me["id"], ctx["body"] or {}):
+            raise HttpError(400, "Некорректные данные подписки.")
+    return {"ok": True}
+
+
+def api_push_unsubscribe(ctx):
+    require_user(ctx)
+    endpoint = clean(ctx["body"].get("endpoint"), 1000)
+    with db.Tx() as conn:
+        push.delete_subscription(conn, endpoint)
+    return {"ok": True}
+
+
+def api_push_test(ctx):
+    """Проверочное уведомление самому себе — чтобы учитель убедился, что всё работает."""
+    me = require_user(ctx)
+    sent = push.notify_users([me["id"]], "Уведомления включены",
+                             "Так будут выглядеть напоминания о задачах.", "/")
+    if not sent:
+        raise HttpError(400, "Не удалось отправить: подписка не найдена или недействительна.")
+    return {"ok": True, "sent": sent}
+
+
+def api_cron_notify(ctx):
+    """Ежедневная рассылка напоминаний. Вызывается внешним планировщиком по ключу."""
+    key = ctx["query"].get("key", [""])[0]
+    if not push.CRON_KEY or key != push.CRON_KEY:
+        raise HttpError(403, "Неверный ключ.")
+    force = ctx["query"].get("force", ["0"])[0] == "1"
+    return push.maybe_send_daily(force=force)
+
+
 def api_update_profile(ctx):
     """Каждый может изменить своё отображаемое имя."""
     me = require_user(ctx)
@@ -636,6 +702,11 @@ ROUTES = [
     ("POST", r"^/api/plan/weeks/([\w-]+)/items$", api_create_plan_item),
     ("PATCH", r"^/api/plan/items/([\w-]+)$", api_update_plan_item),
     ("DELETE", r"^/api/plan/items/([\w-]+)$", api_delete_plan_item),
+    ("GET", r"^/api/push/config$", api_push_config),
+    ("POST", r"^/api/push/subscribe$", api_push_subscribe),
+    ("POST", r"^/api/push/unsubscribe$", api_push_unsubscribe),
+    ("POST", r"^/api/push/test$", api_push_test),
+    ("GET", r"^/api/cron/notify$", api_cron_notify),
     ("PATCH", r"^/api/me$", api_update_profile),
     ("PATCH", r"^/api/users/(.+)$", api_update_user),
     ("POST", r"^/api/points/adjust$", api_adjust_points),
@@ -700,8 +771,10 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ routing
 
     def _handle(self, method):
-        path = urllib.parse.urlparse(self.path).path
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
         if path.startswith("/api/"):
+            self._query = urllib.parse.parse_qs(parsed.query)
             self._handle_api(method, path)
         elif method == "GET":
             self._serve_static(path)
@@ -719,7 +792,10 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             if route_method != method:
                 continue
-            ctx = {"token": self._session_token(), "body": {}, "set_session": None, "clear_session": False}
+            ctx = {
+                "token": self._session_token(), "body": {}, "set_session": None,
+                "clear_session": False, "query": getattr(self, "_query", {}),
+            }
             try:
                 if method in ("POST", "PATCH", "PUT"):
                     ctx["body"] = self._read_body()
@@ -817,6 +893,7 @@ def main():
         source = "SQLite " + db.DB_PATH
     print(f"База данных: {source}", flush=True)
     db.connect()
+    push.start_scheduler()
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"School Events запущен: http://localhost:{port}", flush=True)
     try:

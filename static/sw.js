@@ -7,7 +7,7 @@
 
    Чтобы выкатить новую версию оболочки, достаточно поднять CACHE_VERSION. */
 
-const CACHE_VERSION = "sea-v1";
+const CACHE_VERSION = "sea-v2";
 const SHELL = [
   "/",
   "/app.jsx",
@@ -32,6 +32,39 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+/* Push-уведомления о задачах */
+self.addEventListener("push", (event) => {
+  let data = { title: "Events", body: "", url: "/" };
+  try {
+    if (event.data) data = Object.assign(data, event.data.json());
+  } catch (e) {
+    if (event.data) data.body = event.data.text();
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: data.url || "/" },
+      tag: data.tag || "sea-task",
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      // приложение уже открыто — просто выводим его вперёд
+      for (const client of list) {
+        if (client.url.indexOf(self.location.origin) === 0 && "focus" in client) return client.focus();
+      }
+      return self.clients.openWindow(target);
+    })
   );
 });
 
