@@ -2,10 +2,21 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>School Events — планирование школьных мероприятий</title>
   <meta name="description" content="Планирование школьных мероприятий: доска идей, задачи, ответственные, календарь, архив и рейтинг." />
+
   <link rel="icon" type="image/png" href="/emblem.png?v=1" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#800080" />
+
+  <!-- iOS: свой набор тегов, манифест там почти не используется -->
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Events" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -16,20 +27,92 @@
     <div class="sea-boot">Загрузка приложения…</div>
   </div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
-  <script type="text/babel" data-presets="react" src="/app.jsx"></script>
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
   <script>
-    window.addEventListener("error", function (e) {
+    /* JSX компилируется прямо в браузере. Babel весит почти 3 МБ, поэтому
+       результат компиляции сохраняется в браузере: при следующих запусках код
+       берётся готовым, а Babel не загружается вовсе. Ключ хранения зависит от
+       содержимого app.jsx — после обновления приложения код компилируется заново. */
+    (function () {
       var root = document.getElementById("root");
-      if (root && !root.dataset.mounted) {
-        root.innerHTML =
-          '<div class="sea-boot sea-boot-error">Не удалось загрузить приложение.<br><small>' +
-          (e.message || "") +
-          "</small><br><small>Проверьте подключение к интернету и обновите страницу.</small></div>";
+
+      function fail(message) {
+        if (root && !root.dataset.mounted) {
+          root.innerHTML =
+            '<div class="sea-boot sea-boot-error">Не удалось загрузить приложение.<br><small>' +
+            (message || "") + "</small><br><small>Проверьте подключение к интернету и обновите страницу.</small></div>";
+        }
       }
-    });
+
+      window.addEventListener("error", function (e) { fail(e.message); });
+
+      function loadScript(src) {
+        return new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = src;
+          s.onload = resolve;
+          s.onerror = function () { reject(new Error("не загрузился " + src)); };
+          document.head.appendChild(s);
+        });
+      }
+
+      function hash(text) {
+        if (window.crypto && window.crypto.subtle) {
+          return window.crypto.subtle
+            .digest("SHA-256", new TextEncoder().encode(text))
+            .then(function (buf) {
+              return Array.from(new Uint8Array(buf)).slice(0, 8)
+                .map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+            });
+        }
+        var h = 0;
+        for (var i = 0; i < text.length; i++) { h = (h * 31 + text.charCodeAt(i)) | 0; }
+        return Promise.resolve(String(h));
+      }
+
+      function cached(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+      }
+
+      function remember(key, code) {
+        try {
+          for (var i = localStorage.length - 1; i >= 0; i--) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf("sea-compiled-") === 0 && k !== key) localStorage.removeItem(k);
+          }
+          localStorage.setItem(key, code);
+        } catch (e) { /* приватный режим или нет места — просто компилируем каждый раз */ }
+      }
+
+      fetch("/app.jsx", { cache: "no-cache" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("app.jsx: HTTP " + r.status);
+          return r.text();
+        })
+        .then(function (source) {
+          return hash(source).then(function (h) {
+            var key = "sea-compiled-" + h;
+            var ready = cached(key);
+            if (ready) return ready;
+            return loadScript("/vendor/babel.min.js").then(function () {
+              var code = Babel.transform(source, { presets: ["react"] }).code;
+              remember(key, code);
+              return code;
+            });
+          });
+        })
+        .then(function (code) { (0, eval)(code); })
+        .catch(function (err) { fail(err && err.message); });
+    })();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/sw.js").catch(function () { /* не критично */ });
+      });
+    }
   </script>
 </body>
 </html>

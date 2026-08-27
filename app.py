@@ -763,13 +763,28 @@ class Handler(BaseHTTPRequestHandler):
             target = os.path.join(STATIC_DIR, "index.html")
         with open(target, "rb") as fh:
             body = fh.read()
-        ctype = mimetypes.guess_type(target)[0] or "application/octet-stream"
-        if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
+        if target.endswith(".webmanifest"):
+            ctype = "application/manifest+json"
+        else:
+            ctype = mimetypes.guess_type(target)[0] or "application/octet-stream"
+        if ctype.startswith("text/") or ctype in ("application/javascript", "application/json", "application/manifest+json"):
             ctype += "; charset=utf-8"
+
+        # sw.js и оболочка не кэшируются браузером, иначе обновления не доедут;
+        # библиотеки в /vendor/ неизменны и кэшируются надолго
+        if target.endswith(("index.html", ".jsx", "sw.js", ".webmanifest")):
+            cache = "no-cache"
+        elif "/vendor/" in target.replace(os.sep, "/"):
+            cache = "max-age=31536000, immutable"
+        else:
+            cache = "max-age=3600"
+
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache" if target.endswith(("index.html", ".jsx")) else "max-age=3600")
+        self.send_header("Cache-Control", cache)
+        if target.endswith("sw.js"):
+            self.send_header("Service-Worker-Allowed", "/")
         self.end_headers()
         self._write_body(body)
 

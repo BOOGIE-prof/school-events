@@ -490,7 +490,83 @@ function App() {
         <ProfileModal currentUser={currentUser} onClose={() => setProfileOpen(false)} run={run} />
       )}
 
+      <InstallPrompt />
+
       {toast && <Toast toast={toast} />}
+    </div>
+  );
+}
+
+/* Подсказка «установите приложение». Android/Chrome умеет ставить по кнопке,
+   iOS — только вручную через «Поделиться», поэтому там показываем инструкцию. */
+function InstallPrompt() {
+  const [deferred, setDeferred] = useState(null);
+  const [visible, setVisible] = useState(false);
+  const [showIosHint, setShowIosHint] = useState(false);
+
+  useEffect(() => {
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    let dismissed = false;
+    try { dismissed = localStorage.getItem("sea-install-dismissed") === "1"; } catch (e) { /* приватный режим */ }
+    if (standalone || dismissed) return;
+
+    const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+    if (isIos) {
+      setVisible(true);
+      return;
+    }
+    const onPrompt = (e) => {
+      e.preventDefault();
+      setDeferred(e);
+      setVisible(true);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+  }, []);
+
+  const hide = () => {
+    setVisible(false);
+    try { localStorage.setItem("sea-install-dismissed", "1"); } catch (e) { /* ничего страшного */ }
+  };
+
+  const install = async () => {
+    if (!deferred) { setShowIosHint(true); return; }
+    deferred.prompt();
+    await deferred.userChoice;
+    setDeferred(null);
+    hide();
+  };
+
+  if (!visible) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed", left: 12, right: 12, bottom: 12, zIndex: 60, maxWidth: 460, margin: "0 auto",
+        background: "#fff", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow)", padding: "12px 14px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <img src="/icon-192.png" alt="" style={{ width: 38, height: 38, borderRadius: 9, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5 }}>Установить приложение</div>
+          <div style={{ fontSize: 12, color: "var(--text-faint)" }}>Иконка на экране телефона, запуск без браузера</div>
+        </div>
+        <button className="sea-btn sea-btn-primary" style={{ padding: "6px 12px", fontSize: 12.5 }} onClick={install}>
+          Установить
+        </button>
+        <button className="sea-btn sea-btn-ghost" style={{ padding: 5 }} onClick={hide} title="Скрыть">
+          <X size={15} />
+        </button>
+      </div>
+
+      {showIosHint && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", fontSize: 12.5, color: "var(--text-soft)", lineHeight: 1.55 }}>
+          На iPhone: нажмите <b>«Поделиться»</b> внизу браузера Safari, пролистайте список и выберите
+          <b> «На экран „Домой“»</b> → <b>«Добавить»</b>.
+        </div>
+      )}
     </div>
   );
 }
