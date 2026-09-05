@@ -151,23 +151,56 @@ table.sea-table tr:last-child td { border-bottom: none; }
 .sea-toast-ok { background: var(--success); }
 
 /* Таблица месячного плана: границы как в привычной Excel-сетке */
+table.sea-plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
 table.sea-plan-table th, table.sea-plan-table td {
   border: 1px solid var(--border);
   vertical-align: top;
+  padding: 8px 10px;
 }
-table.sea-plan-table td input { border-color: transparent; background: transparent; }
-table.sea-plan-table td input:hover { border-color: var(--border); background: #fff; }
-table.sea-plan-table td input:focus { border-color: var(--accent); background: #fff; }
+table.sea-plan-table thead th {
+  text-align: center;
+  vertical-align: middle;
+  padding: 8px;
+}
+/* левый столбец — названия ролей и разделов */
+.sea-plan-rowhead {
+  text-align: left;
+  font-weight: 700;
+  font-size: 12.5px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+/* строка-разделитель «ОРЫНДАУШЫЛАР ЖӘНЕ АПТАЛЫҚ МІНДЕТТЕР» */
+.sea-plan-section {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 7px 10px;
+}
+table.sea-plan-table td textarea { border-color: var(--accent); background: #fff; }
+.sea-plan-table td > div[title]:hover { background: var(--surface-2); border-radius: 4px; }
 
 /* Печать: на бумагу уходит только таблица плана */
 @media print {
   .sea-header, .sea-no-print, .sea-toast { display: none !important; }
   main { padding: 0 !important; max-width: none !important; }
   .sea-card { border: none; box-shadow: none; padding: 0; }
-  .sea-print-area { break-inside: auto; }
-  table.sea-plan-table { font-size: 11pt; }
-  table.sea-plan-table th, table.sea-plan-table td { border: 1px solid #999; }
+  .sea-plan-sheet { break-inside: auto; }
+  table.sea-plan-table { font-size: 9.5pt; }
+  table.sea-plan-table th, table.sea-plan-table td { border: 1px solid #999; padding: 5px 6px; }
   table.sea-plan-table tr { break-inside: avoid; }
+  /* цветные шапки недель должны печататься, а не выходить белыми */
+  table.sea-plan-table thead th, .sea-plan-section, .sea-plan-rowhead, table.sea-plan-table td {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  @page { size: landscape; margin: 10mm; }
 }
 
 @media (max-width: 640px) {

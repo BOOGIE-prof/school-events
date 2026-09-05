@@ -320,6 +320,8 @@ function App() {
   const adjustments = state?.adjustments || [];
   const activity = state?.activity || [];
   const plan = state?.plan || {};
+  const planMonths = state?.planMonths || {};
+  const planRoles = state?.planRoles || [];
   const isZavuch = currentUser?.role === "zavuch";
 
   const myTaskNotifications = useMemo(() => {
@@ -476,7 +478,7 @@ function App() {
           <EventsBoard events={events} currentUser={currentUser} isZavuch={isZavuch} users={users} templates={templates} run={run} />
         )}
         {tab === "calendar" && <CalendarView events={events} />}
-        {tab === "plan" && <MonthlyPlanView plan={plan} users={users} isZavuch={isZavuch} run={run} />}
+        {tab === "plan" && <MonthlyPlanView plan={plan} planMonths={planMonths} planRoles={planRoles} isZavuch={isZavuch} run={run} />}
         {tab === "templates" && <TemplatesView templates={templates} run={run} />}
         {tab === "archive" && <ArchiveView events={events} users={users} run={run} />}
         {tab === "notifications" && <NotificationsView notifications={myTaskNotifications} onOpenEvents={() => setTab("events")} />}
@@ -1928,13 +1930,78 @@ function monthKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function resolveResponsible(input, users) {
-  const value = (input || "").trim();
-  const match = users.find((u) => u.name.toLowerCase() === value.toLowerCase());
-  return match ? { responsible: match.email, responsibleName: "" } : { responsible: "", responsibleName: value };
+/* Цвета колонок недель — как в бумажном плане: каждая неделя своим цветом */
+const WEEK_COLORS = [
+  { head: "#2f6fb5", soft: "#eaf1f9" },
+  { head: "#2a9d8f", soft: "#e7f4f2" },
+  { head: "#e08e45", soft: "#fcf0e5" },
+  { head: "#c94f5e", soft: "#fbeaec" },
+  { head: "#7d5ba6", soft: "#f0eaf7" },
+  { head: "#4a7c59", soft: "#eaf2ec" },
+];
+
+function weekColor(index) {
+  return WEEK_COLORS[index % WEEK_COLORS.length];
 }
 
-function MonthlyPlanView({ plan, users, isZavuch, run }) {
+/* Ячейка, которая правится по клику. Пустая показывает подсказку. */
+function PlanCell({ value, placeholder, onSave, canEdit, align, bold, color, rows = 3, minWidth }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+
+  const start = () => {
+    if (!canEdit) return;
+    setDraft(value || "");
+    setEditing(true);
+  };
+  const save = () => {
+    setEditing(false);
+    if ((draft || "").trim() !== (value || "")) onSave((draft || "").trim());
+  };
+
+  if (editing) {
+    return (
+      <div style={{ minWidth }}>
+        <textarea
+          autoFocus
+          rows={rows}
+          value={draft}
+          onFocus={(e) => e.target.setSelectionRange(e.target.value.length, e.target.value.length)}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save(); }
+            if (e.key === "Escape") { e.preventDefault(); setDraft(value || ""); setEditing(false); }
+          }}
+          placeholder={placeholder}
+          style={{ padding: "6px 8px", fontSize: 12.5, resize: "vertical", lineHeight: 1.45 }}
+        />
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          <button className="sea-btn" style={{ padding: "2px 8px", fontSize: 11 }}
+            onMouseDown={(e) => e.preventDefault()} onClick={save}>Готово</button>
+          <button className="sea-btn sea-btn-ghost" style={{ padding: "2px 8px", fontSize: 11 }}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => { setDraft(value || ""); setEditing(false); }}>Отмена</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={start}
+      title={canEdit ? "Нажмите, чтобы изменить" : undefined}
+      style={{
+        minWidth, cursor: canEdit ? "text" : "default", whiteSpace: "pre-wrap", fontSize: 12.5,
+        lineHeight: 1.45, textAlign: align || "left", fontWeight: bold ? 700 : 400,
+        color: value ? (color || "var(--text)") : "var(--text-faint)", minHeight: 18,
+      }}
+    >
+      {value || (canEdit ? placeholder : "—")}
+    </div>
+  );
+}
+
+function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     const current = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1945,223 +2012,226 @@ function MonthlyPlanView({ plan, users, isZavuch, run }) {
     const [y, m] = upcoming.split("-").map(Number);
     return new Date(y, m - 1, 1);
   });
-  const [drafts, setDrafts] = useState({});
+  const [rolesOpen, setRolesOpen] = useState(false);
 
   const month = monthKey(cursor);
   const weeks = plan[month] || [];
+  const head = planMonths[month] || {};
+  const roles = planRoles || [];
   const monthValue = getMonthValue(cursor.getMonth() + 1);
-  const monthLabel = `${KZ_MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
 
-  const nameOf = (item) =>
-    item.responsible ? users.find((u) => u.email === item.responsible)?.name || item.responsible : item.responsibleName;
+  // ҚҰНДЫЛЫҚ месяца: заданная вручную, иначе — из школьного календаря ценностей
+  const valueTitle = head.valueTitle || monthValue || "";
+  const subtitle = head.subtitle || "Айлық тәрбие жұмысының кешенді жоспары";
 
   const addWeek = () => {
-    const next = weeks.length ? Math.max(...weeks.map((w) => w.weekNo)) + 1 : 1;
+    const used = weeks.map((w) => w.weekNo);
+    let next = 1;
+    while (used.includes(next) && next <= 6) next += 1;
     if (next > 6) return;
     run("POST", "/api/plan/weeks", { month, weekNo: next, topic: "" });
   };
 
-  const addItem = (weekId) => {
-    const draft = drafts[weekId] || {};
-    const title = (draft.title || "").trim();
-    if (!title) return;
-    run("POST", `/api/plan/weeks/${weekId}/items`, { title, ...resolveResponsible(draft.who, users) })
-      .then(() => setDrafts((d) => ({ ...d, [weekId]: { title: "", who: "" } })));
+  const exportCsv = () => {
+    const rows = [
+      [`ҚҰНДЫЛЫҚ: ${valueTitle} (${KZ_MONTHS[cursor.getMonth()].toUpperCase()} АЙЫ)`],
+      [subtitle],
+      [],
+      ["Бөлімдер / Рөлдер", ...weeks.map((w) => `${w.weekNo}-апта: ${w.topic || ""}`)],
+      ["Мақсат", ...weeks.map((w) => w.goal || "")],
+      ["Шешілетін мәселе / Табыс крит.", ...weeks.map((w) => w.success || "")],
+      ["ОРЫНДАУШЫЛАР ЖӘНЕ АПТАЛЫҚ МІНДЕТТЕР"],
+      ...roles.map((r) => [r.name, ...weeks.map((w) => (w.cells || {})[r.id] || "")]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell || "").replace(/"/g, '""')}"`).join(";"))
+      .join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `айлык-жоспар-${month}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
-  const exportCsv = () => {
-    const rows = [["Апта", "Тақырып", "Іс шара", "Жауапты"]];
-    weeks.forEach((w) => {
-      if (!w.items.length) rows.push([`${w.weekNo} апта`, w.topic, "", ""]);
-      w.items.forEach((i, idx) => rows.push([idx === 0 ? `${w.weekNo} апта` : "", idx === 0 ? w.topic : "", i.title, nameOf(i)]));
-    });
-    const csv = "﻿" + rows
-      .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";"))
-      .join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `жоспар-${month}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const colWidth = weeks.length ? Math.max(180, Math.round(760 / weeks.length)) : 220;
 
   return (
     <div>
       <SectionHeader
         title="Айлық жоспар"
-        subtitle="Общий план месяца по неделям: тема недели, мероприятия и ответственные. Заменяет таблицу в Excel."
+        subtitle="Комплексный план воспитательной работы на месяц: цель недели и задачи каждой роли. Заменяет таблицу в Excel."
         action={
-          weeks.length > 0 && (
-            <div style={{ display: "flex", gap: 8 }} className="sea-no-print">
-              <button className="sea-btn" onClick={exportCsv}><Download size={14} /> CSV для Excel</button>
-              <button className="sea-btn" onClick={() => window.print()}><Printer size={14} /> Печать</button>
-            </div>
-          )
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {isZavuch && (
+              <button className="sea-btn" onClick={() => setRolesOpen(true)}>
+                <UsersIcon size={14} /> Рөлдер
+              </button>
+            )}
+            <button className="sea-btn" onClick={exportCsv} disabled={!weeks.length}>
+              <FileText size={14} /> CSV для Excel
+            </button>
+            <button className="sea-btn sea-no-print" onClick={() => window.print()} disabled={!weeks.length}>
+              Печать
+            </button>
+          </div>
         }
       />
 
-      <div className="sea-card sea-print-area">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
-          <button className="sea-btn sea-btn-ghost sea-no-print" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
+      <div className="sea-card sea-plan-sheet">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+          <button className="sea-btn sea-btn-ghost sea-no-print"
+            onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}>
             <ChevronLeft size={16} />
           </button>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{monthLabel}</div>
-            <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+          <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 17, color: "var(--accent)", letterSpacing: "-0.01em" }}>
+              ҚҰНДЫЛЫҚ: {(valueTitle || "—").toUpperCase()} ({KZ_MONTHS[cursor.getMonth()].toUpperCase()} АЙЫ)
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>{subtitle}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 2 }}>
               {cursor.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}
             </div>
           </div>
-          <button className="sea-btn sea-btn-ghost sea-no-print" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>
+          <button className="sea-btn sea-btn-ghost sea-no-print"
+            onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}>
             <ChevronRight size={16} />
           </button>
         </div>
 
-        {monthValue && (
-          <div style={{ background: "var(--accent-soft)", color: "var(--accent)", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, fontWeight: 700, textAlign: "center", marginBottom: 14 }}>
-            {monthValue}
+        {isZavuch && (
+          <div className="sea-no-print" style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr", margin: "10px 0 16px" }}>
+            <div>
+              <label className="sea-label">ҚҰНДЫЛЫҚ месяца</label>
+              <PlanCell
+                value={head.valueTitle || ""}
+                placeholder={monthValue ? `по умолчанию: ${monthValue}` : "напр. САЛАУАТТЫ ӨМІР"}
+                canEdit
+                rows={2}
+                onSave={(text) => run("PATCH", `/api/plan/months/${month}`, { valueTitle: text })}
+              />
+            </div>
+            <div>
+              <label className="sea-label">Подзаголовок</label>
+              <PlanCell
+                value={head.subtitle || ""}
+                placeholder="Айлық тәрбие жұмысының кешенді жоспары"
+                canEdit
+                rows={2}
+                onSave={(text) => run("PATCH", `/api/plan/months/${month}`, { subtitle: text })}
+              />
+            </div>
           </div>
         )}
 
         {weeks.length === 0 ? (
           <EmptyState
-            icon={TableIcon}
+            icon={FileText}
             text="На этот месяц плана ещё нет"
-            hint={isZavuch ? "Добавьте первую неделю — и заполните тему, мероприятия и ответственных." : "План составляет завуч."}
+            hint={isZavuch ? "Добавьте первую неделю — и заполните цель, задачу и обязанности ролей." : "Завуч ещё не составил план на этот месяц."}
           />
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="sea-table sea-plan-table" style={{ minWidth: 620 }}>
+          <div style={{ overflowX: "auto" }} className="sea-scrollbar">
+            <table className="sea-plan-table">
               <thead>
                 <tr>
-                  <th style={{ width: 90 }}>Апта</th>
-                  <th style={{ width: "26%" }}>Тақырып</th>
-                  <th>Іс шаралар</th>
-                  <th style={{ width: "22%" }}>Жауапты</th>
-                  {isZavuch && <th style={{ width: 40 }} className="sea-no-print"></th>}
+                  <th style={{ minWidth: 168, textAlign: "left" }}>Бөлімдер / Рөлдер</th>
+                  {weeks.map((w, idx) => {
+                    const c = weekColor(idx);
+                    return (
+                      <th key={w.id} style={{ background: c.head, color: "#fff", minWidth: colWidth }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 800 }}>{w.weekNo}-апта</div>
+                        <div style={{ marginTop: 2 }}>
+                          <PlanCell
+                            value={w.topic || ""}
+                            placeholder="тақырып"
+                            canEdit={isZavuch}
+                            rows={2}
+                            align="center"
+                            bold
+                            color="#fff"
+                            onSave={(text) => run("PATCH", `/api/plan/weeks/${w.id}`, { topic: text })}
+                          />
+                        </div>
+                      </th>
+                    );
+                  })}
+                  {isZavuch && <th className="sea-no-print" style={{ width: 34 }} />}
                 </tr>
               </thead>
+
               <tbody>
-                {weeks.map((w) => {
-                  const rowCount = Math.max(1, w.items.length) + (isZavuch ? 1 : 0);
-                  const firstCells = (
-                    <>
-                      <td rowSpan={rowCount} style={{ fontWeight: 700, verticalAlign: "middle", background: "var(--surface)" }}>
-                        {w.weekNo} апта
-                      </td>
-                      <td rowSpan={rowCount} style={{ verticalAlign: "middle" }}>
-                        {isZavuch ? (
-                          <input
-                            defaultValue={w.topic}
-                            placeholder="апта тақырыбы"
-                            style={{ padding: "6px 8px" }}
-                            onBlur={(e) => {
-                              if (e.target.value !== w.topic) run("PATCH", `/api/plan/weeks/${w.id}`, { topic: e.target.value });
-                            }}
-                          />
-                        ) : (
-                          w.topic || <span style={{ color: "var(--text-faint)" }}>—</span>
-                        )}
-                      </td>
-                    </>
-                  );
+                <tr>
+                  <th scope="row" className="sea-plan-rowhead">🎯 Мақсат</th>
+                  {weeks.map((w, idx) => (
+                    <td key={w.id} style={{ background: weekColor(idx).soft }}>
+                      <PlanCell
+                        value={w.goal || ""}
+                        placeholder="цель недели"
+                        canEdit={isZavuch}
+                        bold
+                        onSave={(text) => run("PATCH", `/api/plan/weeks/${w.id}`, { goal: text })}
+                      />
+                    </td>
+                  ))}
+                  {isZavuch && <td className="sea-no-print" />}
+                </tr>
 
-                  const rows = [];
-                  if (w.items.length === 0) {
-                    rows.push(
-                      <tr key={`${w.id}-empty`}>
-                        {firstCells}
-                        <td colSpan={isZavuch ? 3 : 2} style={{ color: "var(--text-faint)" }}>Іс шаралар әлі қосылмаған</td>
-                      </tr>
-                    );
-                  } else {
-                    w.items.forEach((item, idx) => {
-                      rows.push(
-                        <tr key={item.id}>
-                          {idx === 0 && firstCells}
-                          <td>
-                            {isZavuch ? (
-                              <input
-                                defaultValue={item.title}
-                                style={{ padding: "6px 8px" }}
-                                onBlur={(e) => {
-                                  const v = e.target.value.trim();
-                                  if (v && v !== item.title) run("PATCH", `/api/plan/items/${item.id}`, { title: v });
-                                }}
-                              />
-                            ) : item.title}
-                          </td>
-                          <td>
-                            {isZavuch ? (
-                              <input
-                                list="sea-plan-users"
-                                defaultValue={nameOf(item)}
-                                placeholder="жауапты"
-                                style={{ padding: "6px 8px" }}
-                                onBlur={(e) => {
-                                  if (e.target.value.trim() !== nameOf(item)) {
-                                    run("PATCH", `/api/plan/items/${item.id}`, resolveResponsible(e.target.value, users));
-                                  }
-                                }}
-                              />
-                            ) : (nameOf(item) || <span style={{ color: "var(--text-faint)" }}>—</span>)}
-                          </td>
-                          {isZavuch && (
-                            <td className="sea-no-print">
-                              <button className="sea-btn sea-btn-ghost sea-btn-danger" style={{ padding: 5 }} onClick={() => run("DELETE", `/api/plan/items/${item.id}`)}>
-                                <X size={13} />
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    });
-                  }
+                <tr>
+                  <th scope="row" className="sea-plan-rowhead">💡 Шешілетін мәселе / Табыс крит.</th>
+                  {weeks.map((w) => (
+                    <td key={w.id}>
+                      <PlanCell
+                        value={w.success || ""}
+                        placeholder="какая задача решается, критерий успеха"
+                        canEdit={isZavuch}
+                        onSave={(text) => run("PATCH", `/api/plan/weeks/${w.id}`, { success: text })}
+                      />
+                    </td>
+                  ))}
+                  {isZavuch && <td className="sea-no-print" />}
+                </tr>
 
-                  if (isZavuch) {
-                    const draft = drafts[w.id] || { title: "", who: "" };
-                    rows.push(
-                      <tr key={`${w.id}-add`} className="sea-no-print">
-                        {w.items.length === 0 ? null : null}
-                        <td>
-                          <input
-                            value={draft.title}
-                            placeholder="+ жаңа іс шара"
-                            style={{ padding: "6px 8px" }}
-                            onChange={(e) => setDrafts((d) => ({ ...d, [w.id]: { ...draft, title: e.target.value } }))}
-                            onKeyDown={(e) => { if (e.key === "Enter") addItem(w.id); }}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            list="sea-plan-users"
-                            value={draft.who}
-                            placeholder="жауапты"
-                            style={{ padding: "6px 8px" }}
-                            onChange={(e) => setDrafts((d) => ({ ...d, [w.id]: { ...draft, who: e.target.value } }))}
-                            onKeyDown={(e) => { if (e.key === "Enter") addItem(w.id); }}
-                          />
-                        </td>
-                        <td>
-                          <button className="sea-btn" style={{ padding: 5 }} onClick={() => addItem(w.id)} disabled={!draft.title.trim()}>
-                            <Plus size={13} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return rows;
-                })}
+                <tr>
+                  <td className="sea-plan-section" colSpan={weeks.length + 1 + (isZavuch ? 1 : 0)}>
+                    ОРЫНДАУШЫЛАР ЖӘНЕ АПТАЛЫҚ МІНДЕТТЕР
+                  </td>
+                </tr>
+
+                {roles.map((role) => (
+                  <tr key={role.id}>
+                    <th scope="row" className="sea-plan-rowhead">{role.name}</th>
+                    {weeks.map((w) => (
+                      <td key={w.id}>
+                        <PlanCell
+                          value={(w.cells || {})[role.id] || ""}
+                          placeholder="задача на неделю"
+                          canEdit={isZavuch}
+                          onSave={(text) => run("PUT", "/api/plan/cells", { weekId: w.id, roleId: role.id, text })}
+                        />
+                      </td>
+                    ))}
+                    {isZavuch && (
+                      <td className="sea-no-print" style={{ verticalAlign: "middle" }}>
+                        <button
+                          className="sea-btn sea-btn-ghost sea-btn-danger"
+                          style={{ padding: 4 }}
+                          title={`Удалить строку «${role.name}»`}
+                          onClick={() => run("DELETE", `/api/plan/roles/${role.id}`)}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
               </tbody>
             </table>
-            <datalist id="sea-plan-users">
-              {users.map((u) => <option key={u.email} value={u.name} />)}
-            </datalist>
           </div>
         )}
 
         {isZavuch && (
-          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }} className="sea-no-print">
+          <div className="sea-no-print" style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
             <button className="sea-btn sea-btn-primary" onClick={addWeek} disabled={weeks.length >= 6}>
               <Plus size={14} /> Апта қосу
             </button>
@@ -2176,13 +2246,80 @@ function MonthlyPlanView({ plan, users, isZavuch, run }) {
           </div>
         )}
       </div>
+
+      {rolesOpen && (
+        <PlanRolesModal roles={roles} onClose={() => setRolesOpen(false)} run={run} />
+      )}
     </div>
   );
 }
 
-/* ----------------------------------------------------------------------
-   ШАБЛОНЫ
----------------------------------------------------------------------- */
+function PlanRolesModal({ roles, onClose, run }) {
+  const [name, setName] = useState("");
+
+  const add = async () => {
+    if (!name.trim()) return;
+    await run("POST", "/api/plan/roles", { name: name.trim() });
+    setName("");
+  };
+
+  return (
+    <Modal title="Рөлдер — строки плана" onClose={onClose}>
+      <div style={{ fontSize: 12.5, color: "var(--text-soft)", marginBottom: 12 }}>
+        Это левый столбец таблицы: кто отвечает за задачи недели. Список общий для всех месяцев.
+      </div>
+
+      <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+        {roles.map((r) => (
+          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface)", padding: "7px 10px", borderRadius: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <PlanCell
+                value={r.name}
+                placeholder="название роли"
+                canEdit
+                rows={1}
+                bold
+                onSave={(text) => text && run("PATCH", `/api/plan/roles/${r.id}`, { name: text })}
+              />
+            </div>
+            <button
+              className="sea-btn sea-btn-ghost sea-btn-danger"
+              style={{ padding: 5 }}
+              title="Удалить роль вместе с её задачами"
+              onClick={() => run("DELETE", `/api/plan/roles/${r.id}`)}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        {roles.length === 0 && (
+          <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Ролей пока нет — добавьте первую.</div>
+        )}
+      </div>
+
+      <div className="sea-field">
+        <label className="sea-label">Новая роль</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="напр. Кітапханашы"
+            onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+          />
+          <button className="sea-btn sea-btn-primary" onClick={add} disabled={!name.trim()}>
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
+
+      <ModalFooter>
+        <button className="sea-btn" onClick={onClose}>Готово</button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+
 function TemplatesView({ templates, run }) {
   const [editing, setEditing] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);

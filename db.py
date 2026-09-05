@@ -146,6 +146,28 @@ CREATE TABLE IF NOT EXISTS plan_items (
   position         INTEGER NOT NULL DEFAULT 0
 );
 
+-- Шапка месяца: ҚҰНДЫЛЫҚ и подзаголовок плана
+CREATE TABLE IF NOT EXISTS plan_months (
+  month       TEXT PRIMARY KEY,          -- '2026-04'
+  value_title TEXT NOT NULL DEFAULT '',  -- «САЛАУАТТЫ ӨМІР»
+  subtitle    TEXT NOT NULL DEFAULT ''   -- «Айлық тәрбие жұмысының кешенді жоспары»
+);
+
+-- Роли-исполнители: строки таблицы плана (Директор, ТЖО, Мұғалімдер…)
+CREATE TABLE IF NOT EXISTS plan_roles (
+  id       TEXT PRIMARY KEY,
+  name     TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0
+);
+
+-- Ячейка таблицы: что делает роль на этой неделе
+CREATE TABLE IF NOT EXISTS plan_cells (
+  week_id TEXT NOT NULL REFERENCES plan_weeks(id) ON DELETE CASCADE,
+  role_id TEXT NOT NULL REFERENCES plan_roles(id) ON DELETE CASCADE,
+  text    TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (week_id, role_id)
+);
+
 -- Ручные корректировки очков: завуч может прибавить или снять любое количество
 CREATE TABLE IF NOT EXISTS point_adjustments (
   id         TEXT PRIMARY KEY,
@@ -317,9 +339,44 @@ def connect():
         if _conn is None:
             _conn = Connection()
             _conn.init_schema()
+            _migrate(_conn)
             _seed_templates(_conn)
+            _seed_plan_roles(_conn)
             _conn.commit()
         return _conn
+
+
+DEFAULT_PLAN_ROLES = [
+    "Директор",
+    "ТЖО (Тәрбие орынбасары)",
+    "БЖО / ҰЖО",
+    "Мұғалімдер",
+    "Психолог",
+    "Офис менеджер / Медиа (СММ)",
+]
+
+
+def _ensure_column(conn, table, column, ddl):
+    """Добавляет колонку, если её ещё нет: базы, созданные раньше, обновляются на месте."""
+    try:
+        conn.execute(f"SELECT {column} FROM {table} LIMIT 1").fetchone()
+    except Exception:
+        conn.rollback()
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        conn.commit()
+
+
+def _migrate(conn):
+    # цель недели и решаемая задача появились вместе с новым видом плана
+    _ensure_column(conn, "plan_weeks", "goal", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "plan_weeks", "success", "TEXT NOT NULL DEFAULT ''")
+
+
+def _seed_plan_roles(conn):
+    if conn.execute("SELECT COUNT(*) c FROM plan_roles").fetchone()["c"]:
+        return
+    for pos, name in enumerate(DEFAULT_PLAN_ROLES):
+        conn.execute("INSERT INTO plan_roles (id, name, position) VALUES (?,?,?)", (uid("role"), name, pos))
 
 
 def _seed_templates(conn):
@@ -556,14 +613,30 @@ def full_state(conn, me):
             "responsibleName": i["responsible_name"],
         })
 
+    cells_by_week = {}
+    for c in conn.execute("SELECT * FROM plan_cells").fetchall():
+        cells_by_week.setdefault(c["week_id"], {})[c["role_id"]] = c["text"]
+
     plan = {}
     for w in conn.execute("SELECT * FROM plan_weeks ORDER BY month, week_no").fetchall():
         plan.setdefault(w["month"], []).append({
             "id": w["id"],
             "weekNo": w["week_no"],
             "topic": w["topic"],
+            "goal": w["goal"],
+            "success": w["success"],
+            "cells": cells_by_week.get(w["id"], {}),
             "items": items_by_week.get(w["id"], []),
         })
+
+    plan_months = {
+        m["month"]: {"valueTitle": m["value_title"], "subtitle": m["subtitle"]}
+        for m in conn.execute("SELECT * FROM plan_months").fetchall()
+    }
+    plan_roles = [
+        {"id": r["id"], "name": r["name"]}
+        for r in conn.execute("SELECT * FROM plan_roles ORDER BY position, name").fetchall()
+    ]
 
     activity = [
         {
@@ -585,6 +658,8 @@ def full_state(conn, me):
         "adjustments": adjustments,
         "activity": activity,
         "plan": plan,
+        "planMonths": plan_months,
+        "planRoles": plan_roles,
     }
 
 

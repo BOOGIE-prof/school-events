@@ -515,11 +515,84 @@ def api_create_plan_week(ctx):
 
 def api_update_plan_week(ctx, week_id):
     me = require_zavuch(ctx)
+    body = ctx["body"]
     with db.Tx() as conn:
         if not conn.execute("SELECT 1 FROM plan_weeks WHERE id=?", (week_id,)).fetchone():
             raise HttpError(404, "Неделя не найдена.")
-        if "topic" in ctx["body"]:
-            conn.execute("UPDATE plan_weeks SET topic=? WHERE id=?", (clean(ctx["body"]["topic"], 300), week_id))
+        for field, column in (("topic", "topic"), ("goal", "goal"), ("success", "success")):
+            if field in body:
+                conn.execute(f"UPDATE plan_weeks SET {column}=? WHERE id=?", (clean(body[field], 1000), week_id))
+        return state_after(conn, me)
+
+
+def api_update_plan_month(ctx, month):
+    """Шапка месяца: ҚҰНДЫЛЫҚ и подзаголовок плана."""
+    me = require_zavuch(ctx)
+    if not MONTH_RE.match(month):
+        raise HttpError(400, "Неверный месяц.")
+    body = ctx["body"]
+    with db.Tx() as conn:
+        row = conn.execute("SELECT * FROM plan_months WHERE month=?", (month,)).fetchone()
+        value_title = clean(body.get("valueTitle"), 300) if "valueTitle" in body else (row["value_title"] if row else "")
+        subtitle = clean(body.get("subtitle"), 300) if "subtitle" in body else (row["subtitle"] if row else "")
+        conn.execute(
+            "INSERT INTO plan_months (month, value_title, subtitle) VALUES (?,?,?)"
+            " ON CONFLICT(month) DO UPDATE SET value_title=excluded.value_title, subtitle=excluded.subtitle",
+            (month, value_title, subtitle),
+        )
+        return state_after(conn, me)
+
+
+def api_create_plan_role(ctx):
+    me = require_zavuch(ctx)
+    name = clean(ctx["body"].get("name"), 200)
+    if not name:
+        raise HttpError(400, "Укажите название роли.")
+    with db.Tx() as conn:
+        pos = conn.execute("SELECT COALESCE(MAX(position),-1)+1 p FROM plan_roles").fetchone()["p"]
+        conn.execute("INSERT INTO plan_roles (id, name, position) VALUES (?,?,?)", (db.uid("role"), name, pos))
+        return state_after(conn, me)
+
+
+def api_update_plan_role(ctx, role_id):
+    me = require_zavuch(ctx)
+    name = clean(ctx["body"].get("name"), 200)
+    if not name:
+        raise HttpError(400, "Название роли не может быть пустым.")
+    with db.Tx() as conn:
+        if not conn.execute("SELECT 1 FROM plan_roles WHERE id=?", (role_id,)).fetchone():
+            raise HttpError(404, "Роль не найдена.")
+        conn.execute("UPDATE plan_roles SET name=? WHERE id=?", (name, role_id))
+        return state_after(conn, me)
+
+
+def api_delete_plan_role(ctx, role_id):
+    me = require_zavuch(ctx)
+    with db.Tx() as conn:
+        conn.execute("DELETE FROM plan_roles WHERE id=?", (role_id,))
+        return state_after(conn, me)
+
+
+def api_set_plan_cell(ctx):
+    """Одна ячейка таблицы: что делает роль на этой неделе."""
+    me = require_zavuch(ctx)
+    body = ctx["body"]
+    week_id = clean(body.get("weekId"), 64)
+    role_id = clean(body.get("roleId"), 64)
+    text = clean(body.get("text"), 2000)
+    with db.Tx() as conn:
+        if not conn.execute("SELECT 1 FROM plan_weeks WHERE id=?", (week_id,)).fetchone():
+            raise HttpError(404, "Неделя не найдена.")
+        if not conn.execute("SELECT 1 FROM plan_roles WHERE id=?", (role_id,)).fetchone():
+            raise HttpError(404, "Роль не найдена.")
+        if text:
+            conn.execute(
+                "INSERT INTO plan_cells (week_id, role_id, text) VALUES (?,?,?)"
+                " ON CONFLICT(week_id, role_id) DO UPDATE SET text=excluded.text",
+                (week_id, role_id, text),
+            )
+        else:
+            conn.execute("DELETE FROM plan_cells WHERE week_id=? AND role_id=?", (week_id, role_id))
         return state_after(conn, me)
 
 
@@ -696,6 +769,11 @@ ROUTES = [
     ("DELETE", r"^/api/tasks/([\w-]+)$", api_delete_task),
     ("POST", r"^/api/templates$", api_save_template),
     ("DELETE", r"^/api/templates/([\w-]+)$", api_delete_template),
+    ("PATCH", r"^/api/plan/months/(\d{4}-\d{2})$", api_update_plan_month),
+    ("POST", r"^/api/plan/roles$", api_create_plan_role),
+    ("PATCH", r"^/api/plan/roles/([\w-]+)$", api_update_plan_role),
+    ("DELETE", r"^/api/plan/roles/([\w-]+)$", api_delete_plan_role),
+    ("PUT", r"^/api/plan/cells$", api_set_plan_cell),
     ("POST", r"^/api/plan/weeks$", api_create_plan_week),
     ("PATCH", r"^/api/plan/weeks/([\w-]+)$", api_update_plan_week),
     ("DELETE", r"^/api/plan/weeks/([\w-]+)$", api_delete_plan_week),
@@ -877,6 +955,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self._handle("POST")
+
+    def do_PUT(self):
+        self._handle("PUT")
 
     def do_PATCH(self):
         self._handle("PATCH")
