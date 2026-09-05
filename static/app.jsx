@@ -2065,7 +2065,7 @@ function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {isZavuch && (
               <button className="sea-btn" onClick={() => setRolesOpen(true)}>
-                <UsersIcon size={14} /> Рөлдер
+                <UsersIcon size={14} /> Рөлдер / роли
               </button>
             )}
             <button className="sea-btn" onClick={exportCsv} disabled={!weeks.length}>
@@ -2225,6 +2225,14 @@ function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
                     )}
                   </tr>
                 ))}
+
+                {isZavuch && (
+                  <tr className="sea-no-print">
+                    <td colSpan={weeks.length + 2} style={{ padding: 6, background: "var(--surface)" }}>
+                      <AddRoleRow run={run} />
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -2250,6 +2258,55 @@ function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
       {rolesOpen && (
         <PlanRolesModal roles={roles} onClose={() => setRolesOpen(false)} run={run} />
       )}
+    </div>
+  );
+}
+
+/* Добавление строки-роли прямо под таблицей — там, где её и ищут глазами */
+function AddRoleRow({ run }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const add = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await run("POST", "/api/plan/roles", { name: name.trim() });
+      setName("");
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button className="sea-btn sea-btn-ghost" style={{ fontSize: 12.5 }} onClick={() => setOpen(true)}>
+        <Plus size={13} /> Рөл қосу — добавить строку (напр. СММ, кітапханашы)
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") add();
+          if (e.key === "Escape") { setName(""); setOpen(false); }
+        }}
+        placeholder="название роли, напр. СММ"
+        style={{ width: "auto", minWidth: 240, flex: "0 1 320px" }}
+      />
+      <button className="sea-btn sea-btn-primary" style={{ padding: "5px 12px" }} disabled={!name.trim() || busy} onClick={add}>
+        Добавить
+      </button>
+      <button className="sea-btn sea-btn-ghost" style={{ padding: "5px 10px" }} onClick={() => { setName(""); setOpen(false); }}>
+        Отмена
+      </button>
     </div>
   );
 }
