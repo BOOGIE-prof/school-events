@@ -7,7 +7,7 @@
 
    Чтобы выкатить новую версию оболочки, достаточно поднять CACHE_VERSION. */
 
-const CACHE_VERSION = "sea-v4";
+const CACHE_VERSION = "sea-v5";
 const SHELL = [
   "/",
   "/app.jsx",

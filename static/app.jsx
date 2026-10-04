@@ -76,6 +76,14 @@ const VALUES_BY_MONTH = {
 };
 const getMonthValue = (m) => VALUES_BY_MONTH[m] || null;
 
+/* Құндылық месяца: заданное завучем название перекрывает календарь ценностей.
+   Используется и в шапке, и в календаре, и в айлық жоспар — чтобы везде совпадало. */
+function valueOfMonth(date, planMonths) {
+  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const custom = ((planMonths || {})[key] || {}).valueTitle;
+  return (custom && custom.trim()) || getMonthValue(date.getMonth() + 1) || null;
+}
+
 const STATUS_LABELS = {
   draft: { label: "Черновик", color: "var(--text-soft)", bg: "var(--surface-2)" },
   pending: { label: "На рассмотрении", color: "var(--warning)", bg: "var(--warning-soft)" },
@@ -386,7 +394,7 @@ function App() {
   ];
 
   const now = new Date();
-  const monthValue = getMonthValue(now.getMonth() + 1);
+  const monthValue = valueOfMonth(now, planMonths);
 
   return (
     <div className="sea-root">
@@ -465,7 +473,7 @@ function App() {
           <DashboardView
             currentUser={currentUser} isZavuch={isZavuch} events={events} ideas={ideas} users={users}
             adjustments={adjustments} activity={activity} pendingApprovalCount={pendingApprovalCount}
-            myTaskNotifications={myTaskNotifications} onNavigate={setTab}
+            myTaskNotifications={myTaskNotifications} planMonths={planMonths} onNavigate={setTab}
           />
         )}
         {tab === "ideas" && (
@@ -477,7 +485,7 @@ function App() {
         {tab === "events" && (
           <EventsBoard events={events} currentUser={currentUser} isZavuch={isZavuch} users={users} templates={templates} run={run} />
         )}
-        {tab === "calendar" && <CalendarView events={events} />}
+        {tab === "calendar" && <CalendarView events={events} planMonths={planMonths} />}
         {tab === "plan" && <MonthlyPlanView plan={plan} planMonths={planMonths} planRoles={planRoles} isZavuch={isZavuch} run={run} />}
         {tab === "templates" && <TemplatesView templates={templates} run={run} />}
         {tab === "archive" && <ArchiveView events={events} users={users} run={run} />}
@@ -846,7 +854,7 @@ function AuthScreen({ onLogin, onRegister }) {
 /* ----------------------------------------------------------------------
    ГЛАВНАЯ / ДАШБОРД
 ---------------------------------------------------------------------- */
-function DashboardView({ currentUser, isZavuch, events, ideas, users, adjustments, activity, pendingApprovalCount, myTaskNotifications, onNavigate }) {
+function DashboardView({ currentUser, isZavuch, events, ideas, users, adjustments, activity, pendingApprovalCount, myTaskNotifications, planMonths, onNavigate }) {
   const ranking = useMemo(() => computeRanking(events, ideas, users, adjustments), [events, ideas, users, adjustments]);
   const myRank = ranking.findIndex((r) => r.email === currentUser.email);
   const myPoints = myRank >= 0 ? ranking[myRank].points : 0;
@@ -867,7 +875,7 @@ function DashboardView({ currentUser, isZavuch, events, ideas, users, adjustment
     { key: "leaderboard", label: "Мои очки", value: myPoints, icon: Star, color: "var(--success)", bg: "var(--success-soft)" },
   ];
 
-  const monthValue = getMonthValue(new Date().getMonth() + 1);
+  const monthValue = valueOfMonth(new Date(), planMonths);
 
   return (
     <div>
@@ -1788,7 +1796,7 @@ function ArchiveModal({ event, users, onClose, onSave }) {
 /* ----------------------------------------------------------------------
    КАЛЕНДАРЬ
 ---------------------------------------------------------------------- */
-function CalendarView({ events }) {
+function CalendarView({ events, planMonths }) {
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -1832,7 +1840,7 @@ function CalendarView({ events }) {
   const dateStr = (d) => `${year}-${pad(month + 1)}-${pad(d)}`;
   const todayStr = new Date().toISOString().slice(0, 10);
   const selectedEvents = selectedDay ? eventsByDate[selectedDay] || [] : [];
-  const monthValue = getMonthValue(month + 1);
+  const monthValue = valueOfMonth(cursor, planMonths);
 
   return (
     <div>
@@ -2013,16 +2021,25 @@ function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
     return new Date(y, m - 1, 1);
   });
   const [rolesOpen, setRolesOpen] = useState(false);
+  const [editingValue, setEditingValue] = useState(false);
+  const [valueDraft, setValueDraft] = useState("");
 
   const month = monthKey(cursor);
   const weeks = plan[month] || [];
   const head = planMonths[month] || {};
   const roles = planRoles || [];
-  const monthValue = getMonthValue(cursor.getMonth() + 1);
+  const monthValue = valueOfMonth(cursor, planMonths);
 
   // ҚҰНДЫЛЫҚ месяца: заданная вручную, иначе — из школьного календаря ценностей
   const valueTitle = head.valueTitle || monthValue || "";
   const subtitle = head.subtitle || "Айлық тәрбие жұмысының кешенді жоспары";
+
+  const saveValue = () => {
+    setEditingValue(false);
+    if (valueDraft.trim() !== (head.valueTitle || "")) {
+      run("PATCH", `/api/plan/months/${month}`, { valueTitle: valueDraft.trim() });
+    }
+  };
 
   const addWeek = () => {
     const used = weeks.map((w) => w.weekNo);
@@ -2085,9 +2102,37 @@ function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
             <ChevronLeft size={16} />
           </button>
           <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 17, color: "var(--accent)", letterSpacing: "-0.01em" }}>
-              ҚҰНДЫЛЫҚ: {(valueTitle || "—").toUpperCase()} ({KZ_MONTHS[cursor.getMonth()].toUpperCase()} АЙЫ)
-            </div>
+            {editingValue ? (
+              <div style={{ maxWidth: 520, margin: "0 auto" }}>
+                <input
+                  autoFocus
+                  value={valueDraft}
+                  onChange={(e) => setValueDraft(e.target.value)}
+                  onBlur={saveValue}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); saveValue(); }
+                    if (e.key === "Escape") { e.preventDefault(); setEditingValue(false); }
+                  }}
+                  placeholder={monthValue || "напр. САЛАУАТТЫ ӨМІР"}
+                  style={{ textAlign: "center", fontWeight: 800, fontSize: 15, color: "var(--accent)" }}
+                />
+                <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
+                  Enter — сохранить, Escape — отменить. Пустое поле вернёт значение из календаря ценностей.
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => { if (isZavuch) { setValueDraft(head.valueTitle || ""); setEditingValue(true); } }}
+                title={isZavuch ? "Нажмите, чтобы изменить Құндылық месяца" : undefined}
+                style={{
+                  fontWeight: 800, fontSize: 17, color: "var(--accent)", letterSpacing: "-0.01em",
+                  cursor: isZavuch ? "text" : "default", display: "inline-flex", alignItems: "center", gap: 6,
+                }}
+              >
+                ҚҰНДЫЛЫҚ: {(valueTitle || "—").toUpperCase()} ({KZ_MONTHS[cursor.getMonth()].toUpperCase()} АЙЫ)
+                {isZavuch && <Pencil size={12} className="sea-no-print" style={{ opacity: 0.5, flexShrink: 0 }} />}
+              </div>
+            )}
             <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>{subtitle}</div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 2 }}>
               {cursor.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}
@@ -2100,26 +2145,18 @@ function MonthlyPlanView({ plan, planMonths, planRoles, isZavuch, run }) {
         </div>
 
         {isZavuch && (
-          <div className="sea-no-print" style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr", margin: "10px 0 16px" }}>
-            <div>
-              <label className="sea-label">ҚҰНДЫЛЫҚ месяца</label>
-              <PlanCell
-                value={head.valueTitle || ""}
-                placeholder={monthValue ? `по умолчанию: ${monthValue}` : "напр. САЛАУАТТЫ ӨМІР"}
-                canEdit
-                rows={2}
-                onSave={(text) => run("PATCH", `/api/plan/months/${month}`, { valueTitle: text })}
-              />
-            </div>
-            <div>
-              <label className="sea-label">Подзаголовок</label>
-              <PlanCell
-                value={head.subtitle || ""}
-                placeholder="Айлық тәрбие жұмысының кешенді жоспары"
-                canEdit
-                rows={2}
-                onSave={(text) => run("PATCH", `/api/plan/months/${month}`, { subtitle: text })}
-              />
+          <div className="sea-no-print" style={{ margin: "10px 0 16px" }}>
+            <label className="sea-label">Подзаголовок плана</label>
+            <PlanCell
+              value={head.subtitle || ""}
+              placeholder="Айлық тәрбие жұмысының кешенді жоспары"
+              canEdit
+              rows={2}
+              onSave={(text) => run("PATCH", `/api/plan/months/${month}`, { subtitle: text })}
+            />
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 6 }}>
+              Құндылық меняется нажатием на заголовок выше. Название подставляется и в шапку
+              приложения, и в календарь — везде, где показывается ценность месяца.
             </div>
           </div>
         )}
