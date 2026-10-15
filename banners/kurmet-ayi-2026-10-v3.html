@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="kk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=800">
+<title>Құрмет айы — X-баннер, вариант 3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,500;0,600;0,700;0,800;0,900;1,500;1,700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #fff; }
+body { font-family: 'Montserrat', sans-serif; color: #fff; }
+.banner { width: 800px; height: 1800px; position: relative; overflow: hidden;
+  background: linear-gradient(180deg, #24062a 0%, #3d0742 45%, #6a0a6a 100%);
+  display: flex; flex-direction: column; }
+
+.glow { position: absolute; border-radius: 50%; }
+.g1 { width: 640px; height: 640px; right: -300px; top: -260px; background: rgba(255,201,74,.07); }
+.g2 { width: 420px; height: 420px; left: -260px; top: 330px; background: rgba(255,255,255,.04); }
+
+.head { position: relative; padding: 44px 56px 0; display: flex; align-items: center; justify-content: space-between; flex: none; }
+.logo { display: flex; align-items: center; gap: 14px; }
+.logo .wm b { display: block; font-size: 40px; font-weight: 900; line-height: 1; letter-spacing: 1px; }
+.logo .wm span { display: block; font-size: 15px; font-weight: 600; letter-spacing: 11.8px; margin-top: 4px; }
+.pill { border: 2px solid #FFC94A; color: #FFC94A; border-radius: 40px; padding: 9px 20px; font-size: 18px;
+  font-weight: 800; letter-spacing: 2px; }
+
+.hero { position: relative; padding: 40px 56px 0; flex: none; }
+.eyebrow { font-size: 19px; font-weight: 700; letter-spacing: 4px; color: #FFC94A; }
+.t1 { font-size: 140px; font-weight: 900; line-height: 126px; letter-spacing: -3px; margin-top: 16px; }
+.t2 { font-size: 140px; font-weight: 900; line-height: 126px; letter-spacing: -3px; color: #FFC94A; }
+.strip { margin-top: 22px; display: flex; align-items: center; gap: 18px; }
+.strip i { flex: 1; height: 3px; background: rgba(255,255,255,.25); display: block; }
+.strip b { font-size: 30px; font-weight: 700; letter-spacing: 6px; }
+
+.cal { position: relative; padding: 32px 54px 0; flex: none; }
+.sec { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+.sec b { font-size: 28px; font-weight: 900; letter-spacing: 1px; color: #fff; }
+.sec span { font-size: 19px; font-weight: 600; color: #FFC94A; }
+.wds { display: grid; grid-template-columns: repeat(7, 92px); gap: 8px; margin-bottom: 8px; }
+.wd { text-align: center; border-top: 3px solid #FFC94A; padding-top: 6px; }
+.wd.we { border-top-color: rgba(255,255,255,.3); }
+.wd b { display: block; font-size: 20px; font-weight: 800; line-height: 1.1; }
+.wd span { display: block; font-size: 14px; font-weight: 500; opacity: .65; }
+.weeks { display: flex; flex-direction: column; gap: 8px; }
+.week { position: relative; display: grid; grid-template-columns: repeat(7, 92px); gap: 8px; }
+.cell { height: 76px; border-radius: 14px; background: rgba(255,255,255,.09); position: relative; }
+.cell.we { background: rgba(255,255,255,.04); }
+.cell.empty { background: transparent; }
+.cell .num { position: absolute; left: 11px; top: 2px; font-size: 28px; font-weight: 800; color: #fff; }
+.cell.we .num { color: rgba(255,255,255,.45); }
+.cell.hit .num { color: #fff; }
+.cell .ic { position: absolute; right: 8px; bottom: 6px; display: flex; }
+.bar { position: absolute; bottom: 6px; height: 34px; border-radius: 10px; color: #fff;
+  display: flex; align-items: center; gap: 9px; padding: 0 12px; font-size: 19px; font-weight: 800;
+  margin-left: 6px; margin-right: 6px; }
+.bar svg { flex: none; }
+
+.ev { position: relative; padding: 32px 54px 0; flex: none; }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.card { height: 168px; border-radius: 24px; padding: 18px 20px; position: relative; }
+.card .row { display: flex; align-items: center; gap: 14px; }
+.card .ic { width: 48px; height: 48px; border-radius: 50%; background: #fff; flex: none;
+  display: flex; align-items: center; justify-content: center; }
+.card .date b { display: block; font-size: 30px; font-weight: 900; line-height: 1; }
+.card .date span { display: block; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; opacity: .85; margin-top: 4px; }
+.card .kz { margin-top: 14px; font-size: 20px; font-weight: 800; line-height: 24px; }
+.card .ru { margin-top: 6px; font-size: 15px; font-weight: 500; line-height: 19px; opacity: .88; }
+
+.foot { position: relative; margin-top: auto; flex: none; padding: 0 56px 34px; text-align: center; }
+.foot .ln { height: 3px; background: #FFC94A; margin: 0 auto 18px; width: 120px; border-radius: 2px; }
+.foot b { display: block; font-size: 24px; font-weight: 700; font-style: italic; }
+.foot b i { color: #FFC94A; font-style: italic; }
+.foot span { display: block; font-size: 17px; font-weight: 500; font-style: italic; opacity: .75; margin-top: 4px; }
+</style></head>
+<body>
+<div class="banner" id="banner">
+  <div class="glow g1"></div><div class="glow g2"></div>
+  <header class="head">
+    <div class="logo"><svg width="66" height="66" viewBox="40 40 418 418" xmlns="http://www.w3.org/2000/svg"><path fill="#fff" d="M52 112A60 60 0 0 1 112 52L375 52A8 8 0 0 1 383 60L383 312A8 8 0 0 1 375 320L130 320A48 48 0 0 0 82 368A48 48 0 0 0 130 416L417 416L417 93A8 8 0 0 1 425 85L437 85A8 8 0 0 1 445 93L445 437A8 8 0 0 1 437 445L107 445A55 55 0 0 1 52 390Z"/><path fill="#fff" d="M130 348L375 348A20 20 0 0 1 375 388L130 388A20 20 0 0 1 130 348Z"/></svg><div class="wm"><b>DOSTYQ</b><span>SCHOOL</span></div></div>
+    <div class="pill">ҚАЗАН · ОКТЯБРЬ 2026</div>
+  </header>
+  <section class="hero">
+    <div class="eyebrow">АЙ ҚҰНДЫЛЫҒЫ · ЦЕННОСТЬ МЕСЯЦА</div>
+    <div class="t1">ҚҰРМЕТ</div>
+    <div class="t2">АЙЫ</div>
+    <div class="strip"><b>МЕСЯЦ УВАЖЕНИЯ</b><i></i></div>
+  </section>
+  <section class="cal">
+    <div class="sec"><b>ҚАЗАН КҮНТІЗБЕСІ</b><span>Календарь на октябрь</span></div>
+    <div class="wds"><div class="wd"><b>Дс</b><span>Пн</span></div><div class="wd"><b>Сс</b><span>Вт</span></div><div class="wd"><b>Ср</b><span>Ср</span></div><div class="wd"><b>Бс</b><span>Чт</span></div><div class="wd"><b>Жм</b><span>Пт</span></div><div class="wd we"><b>Сб</b><span>Сб</span></div><div class="wd we"><b>Жс</b><span>Вс</span></div></div><div class="weeks"><div class="week"><div class="cell empty"></div><div class="cell empty"></div><div class="cell empty"></div><div class="cell"><span class="num">1</span></div><div class="cell"><span class="num">2</span></div><div class="cell we"><span class="num">3</span></div><div class="cell we"><span class="num">4</span></div></div><div class="week"><div class="cell"><span class="num">5</span></div><div class="cell"><span class="num">6</span></div><div class="cell"><span class="num">7</span></div><div class="cell"><span class="num">8</span></div><div class="cell"><span class="num">9</span></div><div class="cell we"><span class="num">10</span></div><div class="cell we"><span class="num">11</span></div><div class="bar" style="left:0px;width:492px;background:#E0457B"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M14.8 7.5a1.84 1.84 0 0 0-2.6 0l-.2.3-.3-.3a1.84 1.84 0 1 0-2.4 2.8L12 13l2.7-2.7c.9-.9.8-2.1.1-2.8"/></svg><span>Рақмет карточкасы</span></div></div><div class="week"><div class="cell"><span class="num">12</span></div><div class="cell"><span class="num">13</span></div><div class="cell"><span class="num">14</span></div><div class="cell"><span class="num">15</span></div><div class="cell hit" style="background:#1E88D2"><span class="num">16</span><span class="ic"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m9 12 2 2 4-4"/><path d="M5 7c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v12H5V7Z"/><path d="M22 19H2"/></svg></span></div><div class="cell we hit" style="background:#F08A1C"><span class="num">17</span><span class="ic"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M11.1 7.1a16.55 16.55 0 0 1 10.9 4"/><path d="M12 12a12.6 12.6 0 0 1-8.7 5"/><path d="M16.8 13.6a16.55 16.55 0 0 1-9 7.5"/><path d="M20.7 17a12.8 12.8 0 0 0-8.7-5 13.3 13.3 0 0 1 0-10"/><path d="M6.3 3.8a16.55 16.55 0 0 0 1.9 11.5"/><circle cx="12" cy="12" r="10"/></svg></span></div><div class="cell we"><span class="num">18</span></div><div class="bar" style="left:0px;width:392px;background:#8E2DA8"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg><span>Құрмет трекері</span></div></div><div class="week"><div class="cell"><span class="num">19</span></div><div class="cell"><span class="num">20</span></div><div class="cell hit" style="background:#11A38C"><span class="num">21</span><span class="ic"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg></span></div><div class="cell"><span class="num">22</span></div><div class="cell"><span class="num">23</span></div><div class="cell we"><span class="num">24</span></div><div class="cell we"><span class="num">25</span></div></div><div class="week"><div class="cell"><span class="num">26</span></div><div class="cell hit" style="background:#4153C4"><span class="num">27</span><span class="ic"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="10" r="1"/><path d="M22 20V8h-4l-6-4-6 4H2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2"/><path d="M6 17v.01"/><path d="M6 13v.01"/><path d="M18 17v.01"/><path d="M18 13v.01"/><path d="M14 22v-5a2 2 0 0 0-2-2a2 2 0 0 0-2 2v5"/></svg></span></div><div class="cell hit" style="background:#4153C4"><span class="num">28</span><span class="ic"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="10" r="1"/><path d="M22 20V8h-4l-6-4-6 4H2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2"/><path d="M6 17v.01"/><path d="M6 13v.01"/><path d="M18 17v.01"/><path d="M18 13v.01"/><path d="M14 22v-5a2 2 0 0 0-2-2a2 2 0 0 0-2 2v5"/></svg></span></div><div class="cell"><span class="num">29</span></div><div class="cell"><span class="num">30</span></div><div class="cell we"><span class="num">31</span></div><div class="cell empty"></div></div></div>
+  </section>
+  <section class="ev">
+    <div class="sec"><b>АЙ ІС-ШАРАЛАРЫ</b><span>Мероприятия месяца</span></div>
+    <div class="cards"><div class="card" style="background:#E0457B"><div class="row"><div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#E0457B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M14.8 7.5a1.84 1.84 0 0 0-2.6 0l-.2.3-.3-.3a1.84 1.84 0 1 0-2.4 2.8L12 13l2.7-2.7c.9-.9.8-2.1.1-2.8"/></svg></div><div class="date"><b>5–9</b><span>ҚАЗАН · ОКТЯБРЬ</span></div></div><div class="kz">Рақмет карточкасы</div><div class="ru">Карточка благодарности</div></div><div class="card" style="background:#8E2DA8"><div class="row"><div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8E2DA8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></div><div class="date"><b>12–16</b><span>ҚАЗАН · ОКТЯБРЬ</span></div></div><div class="kz">Құрмет трекері</div><div class="ru">Трекер уважения</div></div><div class="card" style="background:#1E88D2"><div class="row"><div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1E88D2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m9 12 2 2 4-4"/><path d="M5 7c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v12H5V7Z"/><path d="M22 19H2"/></svg></div><div class="date"><b>16</b><span>ҚАЗАН · ОКТЯБРЬ</span></div></div><div class="kz">Президент сайлауы</div><div class="ru">Выборы президентов</div></div><div class="card" style="background:#F08A1C"><div class="row"><div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F08A1C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M11.1 7.1a16.55 16.55 0 0 1 10.9 4"/><path d="M12 12a12.6 12.6 0 0 1-8.7 5"/><path d="M16.8 13.6a16.55 16.55 0 0 1-9 7.5"/><path d="M20.7 17a12.8 12.8 0 0 0-8.7-5 13.3 13.3 0 0 1 0-10"/><path d="M6.3 3.8a16.55 16.55 0 0 0 1.9 11.5"/><circle cx="12" cy="12" r="10"/></svg></div><div class="date"><b>17</b><span>ҚАЗАН · ОКТЯБРЬ</span></div></div><div class="kz">Ата-аналар арасындағы<br>волейбол турнирі</div><div class="ru">Турнир по волейболу для родителей</div></div><div class="card" style="background:#11A38C"><div class="row"><div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#11A38C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg></div><div class="date"><b>21</b><span>ҚАЗАН · ОКТЯБРЬ</span></div></div><div class="kz">Dostyq Quiz —<br>оқушылар арасында</div><div class="ru">Dostyq Quiz среди учеников</div></div><div class="card" style="background:#4153C4"><div class="row"><div class="ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4153C4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="10" r="1"/><path d="M22 20V8h-4l-6-4-6 4H2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2"/><path d="M6 17v.01"/><path d="M6 13v.01"/><path d="M18 17v.01"/><path d="M18 13v.01"/><path d="M14 22v-5a2 2 0 0 0-2-2a2 2 0 0 0-2 2v5"/></svg></div><div class="date"><b>27–28</b><span>ҚАЗАН · ОКТЯБРЬ</span></div></div><div class="kz">Астанаға сапар:<br>ЖОО-ларға экскурсия</div><div class="ru">Астана: экскурсия по вузам</div></div></div>
+  </section>
+  <footer class="foot"><div class="ln"></div>
+    <b>«Үлкенге — <i>құрмет</i>, кішіге — ізет»</b><span>Старшим — уважение, младшим — забота</span>
+  </footer>
+</div>
+</body></html>
