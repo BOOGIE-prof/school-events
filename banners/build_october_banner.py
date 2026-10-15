@@ -63,8 +63,8 @@ EVENTS = [
          tile="16", kz="Президент сайлауы", ru="Выборы президентов"),
     dict(days=[17], color="#F08A1C", icon="ball",
          tile="17", kz="Ата-аналар арасындағы волейбол турнирі", ru="Турнир по волейболу для родителей"),
-    dict(days=[23], color="#11A38C", icon="quiz",
-         tile="23", kz="Dostyq Quiz — оқушылар арасында", ru="Dostyq Quiz среди учеников"),
+    dict(days=[21], color="#11A38C", icon="quiz",
+         tile="21", kz="Dostyq Quiz — оқушылар арасында", ru="Dostyq Quiz среди учеников"),
     dict(days=[27, 28], color="#4153C4", icon="uni",
          tile="27–28", kz="Астана: университеттерге экскурсия", ru="Поездка в Астану: экскурсия по университетам"),
 ]
