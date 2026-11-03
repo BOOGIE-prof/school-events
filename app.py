@@ -486,6 +486,22 @@ def api_update_user(ctx, email):
         return state_after(conn, me)
 
 
+def api_reset_user_password(ctx, email):
+    """Завуч ставит сотруднику временный пароль, если тот забыл свой."""
+    me = require_zavuch(ctx)
+    email = urllib.parse.unquote(email).lower()
+    with db.Tx() as conn:
+        target = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    if not target:
+        raise HttpError(404, "Пользователь не найден.")
+    try:
+        db.set_password(target["id"], str(ctx["body"].get("password") or ""))
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    with db.Tx() as conn:
+        return state_after(conn, me)
+
+
 # ---- айлық жоспар (месячный план)
 
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -712,6 +728,20 @@ def api_update_profile(ctx):
         return state_after(conn, fresh)
 
 
+def api_change_password(ctx):
+    """Каждый может сменить свой пароль, зная текущий."""
+    me = require_user(ctx)
+    body = ctx["body"]
+    if not db.verify_password(str(body.get("current") or ""), me["password_hash"]):
+        raise HttpError(400, "Текущий пароль указан неверно.")
+    try:
+        db.set_password(me["id"], str(body.get("password") or ""))
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    with db.Tx() as conn:
+        return state_after(conn, me)
+
+
 def api_adjust_points(ctx):
     """Завуч начисляет или снимает произвольное количество очков."""
     me = require_zavuch(ctx)
@@ -786,7 +816,9 @@ ROUTES = [
     ("POST", r"^/api/push/test$", api_push_test),
     ("GET", r"^/api/cron/notify$", api_cron_notify),
     ("PATCH", r"^/api/me$", api_update_profile),
+    ("POST", r"^/api/me/password$", api_change_password),
     ("PATCH", r"^/api/users/(.+)$", api_update_user),
+    ("POST", r"^/api/users/(.+)/password$", api_reset_user_password),
     ("POST", r"^/api/points/adjust$", api_adjust_points),
     ("DELETE", r"^/api/points/adjust/([\w-]+)$", api_delete_adjustment),
 ]

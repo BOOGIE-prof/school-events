@@ -747,6 +747,7 @@ function ProfileModal({ currentUser, onClose, run }) {
           Email — это логин, он не меняется. Роль назначает завуч.
         </div>
       </div>
+      <ChangePassword run={run} />
       <PushSettings />
       <ModalFooter>
         <button className="sea-btn sea-btn-ghost" onClick={onClose}>Отмена</button>
@@ -755,6 +756,63 @@ function ProfileModal({ currentUser, onClose, run }) {
         </button>
       </ModalFooter>
     </Modal>
+  );
+}
+
+function ChangePassword({ run }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await run("POST", "/api/me/password", { current, password });
+      setCurrent("");
+      setPassword("");
+      setOpen(false);
+      setDone(true);
+    } catch (e) {
+      /* ошибку уже показал toast */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="sea-field">
+        <label className="sea-label">Пароль</label>
+        <button className="sea-btn sea-btn-ghost" onClick={() => { setOpen(true); setDone(false); }}>Сменить пароль</button>
+        {done && <div style={{ fontSize: 12, color: "var(--text-soft)", marginTop: 6 }}>Пароль изменён.</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="sea-field">
+      <label className="sea-label">Текущий пароль</label>
+      <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+      <label className="sea-label" style={{ marginTop: 10 }}>Новый пароль</label>
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && current && password.length >= 6) save(); }}
+      />
+      <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 5 }}>
+        Не короче 6 символов. Если завуч выдал вам временный пароль, введите его как текущий.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button className="sea-btn sea-btn-ghost" onClick={() => { setOpen(false); setCurrent(""); setPassword(""); }}>Отмена</button>
+        <button className="sea-btn sea-btn-primary" disabled={!current || password.length < 6 || busy} onClick={save}>
+          Сменить пароль
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2837,15 +2895,18 @@ function AdjustPointsModal({ user, adjustments, onClose, run }) {
    ПОЛЬЗОВАТЕЛИ
 ---------------------------------------------------------------------- */
 function UsersAdminView({ users, currentUser, isZavuch, run, onEditProfile }) {
+  const [resetFor, setResetFor] = useState(null);
+
   return (
     <div>
       <SectionHeader
         title="Пользователи и роли"
-        subtitle={isZavuch ? "Управление ролями сотрудников школы. Своё имя можно изменить карандашом рядом с ним." : "Список сотрудников. Своё имя можно изменить карандашом рядом с ним, роли назначает завуч."}
+        subtitle={isZavuch ? "Управление ролями сотрудников школы. Если коллега забыл пароль, выдайте ему временный кнопкой «Сбросить пароль»." : "Список сотрудников. Своё имя можно изменить карандашом рядом с ним, роли назначает завуч."}
       />
+      {resetFor && <ResetPasswordModal user={resetFor} run={run} onClose={() => setResetFor(null)} />}
       <div className="sea-card">
         <table className="sea-table">
-          <thead><tr><th>Имя</th><th>Email</th><th>Роль</th></tr></thead>
+          <thead><tr><th>Имя</th><th>Email</th><th>Роль</th>{isZavuch && <th>Пароль</th>}</tr></thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.email}>
@@ -2876,12 +2937,83 @@ function UsersAdminView({ users, currentUser, isZavuch, run, onEditProfile }) {
                     <span className="sea-chip">{u.role === "zavuch" ? "Завуч" : "Учитель"}</span>
                   )}
                 </td>
+                {isZavuch && (
+                  <td>
+                    {u.email !== currentUser.email && (
+                      <button className="sea-btn sea-btn-ghost" style={{ whiteSpace: "nowrap" }} onClick={() => setResetFor(u)}>
+                        Сбросить пароль
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function makeTempPassword() {
+  const digits = String(Math.floor(1000 + Math.random() * 9000));
+  return `dostyq${digits}`;
+}
+
+function ResetPasswordModal({ user, run, onClose }) {
+  const [password, setPassword] = useState(makeTempPassword);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await run("POST", `/api/users/${encodeURIComponent(user.email)}/password`, { password: password.trim() });
+      setPassword(password.trim());
+      setDone(true);
+    } catch (e) {
+      /* ошибку уже показал toast */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <Modal title="Пароль сброшен" onClose={onClose}>
+        <div style={{ lineHeight: 1.6 }}>
+          Передайте {user.name} данные для входа:
+          <div className="sea-card" style={{ marginTop: 10, padding: 12, fontSize: 14 }}>
+            <div>Email: <b>{user.email}</b></div>
+            <div>Временный пароль: <b>{password}</b></div>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-soft)", marginTop: 10 }}>
+            Свой пароль коллега поставит в «Мой профиль» → «Сменить пароль».
+          </div>
+        </div>
+        <ModalFooter>
+          <button className="sea-btn sea-btn-primary" onClick={onClose}>Готово</button>
+        </ModalFooter>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={`Сбросить пароль: ${user.name}`} onClose={onClose}>
+      <div className="sea-field">
+        <label className="sea-label">Временный пароль</label>
+        <input autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 5 }}>
+          Старый пароль перестанет работать. Не короче 6 символов.
+        </div>
+      </div>
+      <ModalFooter>
+        <button className="sea-btn sea-btn-ghost" onClick={onClose}>Отмена</button>
+        <button className="sea-btn sea-btn-primary" disabled={password.trim().length < 6 || busy} onClick={save}>
+          Сбросить пароль
+        </button>
+      </ModalFooter>
+    </Modal>
   );
 }
 

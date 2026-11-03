@@ -456,6 +456,13 @@ def create_user(email, password, name):
         return conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
 
 
+def set_password(user_id, password):
+    if len(password) < 6:
+        raise ValueError("Пароль должен быть не короче 6 символов.")
+    with Tx() as conn:
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(password), user_id))
+
+
 def authenticate(email, password):
     email = (email or "").strip().lower()
     with Tx() as conn:
