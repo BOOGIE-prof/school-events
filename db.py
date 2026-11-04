@@ -370,6 +370,8 @@ def _migrate(conn):
     # цель недели и решаемая задача появились вместе с новым видом плана
     _ensure_column(conn, "plan_weeks", "goal", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "plan_weeks", "success", "TEXT NOT NULL DEFAULT ''")
+    # сложность задачи ставит завуч; пустая — ещё не оценена и считается обычной
+    _ensure_column(conn, "tasks", "difficulty", "TEXT NOT NULL DEFAULT ''")
 
 
 def _seed_plan_roles(conn):
@@ -553,6 +555,7 @@ def full_state(conn, me):
             "comment": t["comment"],
             "deadline": t["deadline"],
             "status": t["status"],
+            "difficulty": t["difficulty"],
             "responsible": resp.get(t["id"], []),
         })
 

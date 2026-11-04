@@ -28,6 +28,7 @@ SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "").lower() in ("1", "true", "
 
 EVENT_STATUSES = ("draft", "pending", "approved", "rejected", "done")
 TASK_STATUSES = ("todo", "in_progress", "done")
+TASK_DIFFICULTIES = ("", "easy", "normal", "hard")
 
 
 class HttpError(Exception):
@@ -399,6 +400,12 @@ def api_update_task(ctx, task_id):
             if body["status"] not in TASK_STATUSES:
                 raise HttpError(400, "Неизвестный статус задачи.")
             fields.append("status=?"); values.append(body["status"])
+        if "difficulty" in body:
+            if me["role"] != "zavuch":
+                raise HttpError(403, "Сложность задачи оценивает только завуч.")
+            if body["difficulty"] not in TASK_DIFFICULTIES:
+                raise HttpError(400, "Неизвестная сложность задачи.")
+            fields.append("difficulty=?"); values.append(body["difficulty"])
         if fields:
             conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id=?", (*values, task_id))
         newly_assigned = []

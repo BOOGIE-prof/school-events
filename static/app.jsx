@@ -100,9 +100,20 @@ const TASK_STATUS_LABELS = {
 const POINTS_PER_TASK = 100;
 const POINTS_PER_IDEA = 10;
 const POINTS_PER_APPROVED_IDEA = 50;
-// Задача считается проваленной, только когда мероприятие отмечено проведённым,
-// а её статус остался не «Готово». Пока мероприятие идёт, минусов нет.
-const POINTS_PER_FAILED_TASK = 100;
+
+/* Сложность задачи ставит завуч. Неоценённая задача считается обычной.
+   За невыполненную задачу снимается столько же, сколько дала бы выполненная:
+   задача считается проваленной, только когда мероприятие отмечено проведённым,
+   а её статус остался не «Готово». Пока мероприятие идёт, минусов нет. */
+const TASK_DIFFICULTY = {
+  easy: { label: "Лёгкая", points: 50, color: "var(--success)", bg: "var(--success-soft)" },
+  normal: { label: "Обычная", points: POINTS_PER_TASK, color: "var(--text-soft)", bg: "var(--surface-2)" },
+  hard: { label: "Сложная", points: 200, color: "var(--danger)", bg: "var(--danger-soft)" },
+};
+
+function taskPoints(task) {
+  return (TASK_DIFFICULTY[task.difficulty] || TASK_DIFFICULTY.normal).points;
+}
 
 /* Призовой фонд: победителя рейтинга объявляют перед Новым годом.
    Чтобы изменить приз или дату — правьте только этот объект. */
@@ -182,19 +193,21 @@ function fileToBase64(file) {
 }
 
 function computeRanking(events, ideas, users, adjustments) {
-  const points = {}, doneTasks = {}, failedTasks = {}, ideasProposed = {}, ideasApproved = {};
+  const points = {}, doneTasks = {}, failedTasks = {}, failedPoints = {}, ideasProposed = {}, ideasApproved = {};
 
   events.forEach((ev) => {
     (ev.tasks || []).forEach((t) => {
+      const worth = taskPoints(t);
       if (t.status === "done") {
         (t.responsible || []).forEach((email) => {
-          points[email] = (points[email] || 0) + POINTS_PER_TASK;
+          points[email] = (points[email] || 0) + worth;
           doneTasks[email] = (doneTasks[email] || 0) + 1;
         });
       } else if (ev.status === "done") {
         (t.responsible || []).forEach((email) => {
-          points[email] = (points[email] || 0) - POINTS_PER_FAILED_TASK;
+          points[email] = (points[email] || 0) - worth;
           failedTasks[email] = (failedTasks[email] || 0) + 1;
+          failedPoints[email] = (failedPoints[email] || 0) + worth;
         });
       }
     });
@@ -228,6 +241,7 @@ function computeRanking(events, ideas, users, adjustments) {
         points: finalPoints,
         tasksDone: doneTasks[u.email] || 0,
         tasksFailed: failedTasks[u.email] || 0,
+        failedPoints: failedPoints[u.email] || 0,
         ideasProposed: ideasProposed[u.email] || 0,
         ideasApproved: ideasApproved[u.email] || 0,
         // уровень считается только по набранным очкам: минус не опускает ниже первого
@@ -348,6 +362,10 @@ function App() {
   }, [events, currentUser]);
 
   const pendingApprovalCount = useMemo(() => events.filter((e) => e.status === "pending").length, [events]);
+  const unratedTaskCount = useMemo(
+    () => events.reduce((n, e) => n + (e.tasks || []).filter((t) => t.status === "done" && !t.difficulty).length, 0),
+    [events]
+  );
 
   const myRankInfo = useMemo(() => {
     if (!currentUser) return null;
@@ -390,6 +408,7 @@ function App() {
     { key: "archive", label: "Архив", icon: ArchiveIcon },
     { key: "notifications", label: "Уведомления", icon: Bell, badge: myTaskNotifications.length },
     { key: "leaderboard", label: "Рейтинг", icon: Trophy },
+    ...(isZavuch ? [{ key: "review", label: "Оценка задач", icon: Star, badge: unratedTaskCount }] : []),
     { key: "users", label: "Пользователи", icon: UsersIcon },
   ];
 
@@ -493,6 +512,7 @@ function App() {
         {tab === "leaderboard" && (
           <LeaderboardView events={events} users={users} ideas={ideas} adjustments={adjustments} isZavuch={isZavuch} run={run} currentUser={currentUser} />
         )}
+        {tab === "review" && isZavuch && <TaskReviewView events={events} users={users} run={run} />}
         {tab === "users" && <UsersAdminView users={users} currentUser={currentUser} isZavuch={isZavuch} run={run} onEditProfile={() => setProfileOpen(true)} />}
       </main>
 
@@ -1596,6 +1616,7 @@ function EventDetailModal({ event, users, isZavuch, conflicts, run, onClose }) {
                   key={t.id}
                   task={t}
                   users={users}
+                  isZavuch={isZavuch}
                   onChange={(patch) => run("PATCH", `/api/tasks/${t.id}`, patch)}
                   onRemove={() => run("DELETE", `/api/tasks/${t.id}`)}
                 />
@@ -1621,7 +1642,7 @@ function EventDetailModal({ event, users, isZavuch, conflicts, run, onClose }) {
   );
 }
 
-function TaskRow({ task, users, onChange, onRemove }) {
+function TaskRow({ task, users, isZavuch, onChange, onRemove }) {
   const [editingResp, setEditingResp] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
   const [commentDraft, setCommentDraft] = useState(task.comment || "");
@@ -1653,7 +1674,12 @@ function TaskRow({ task, users, onChange, onRemove }) {
 
   return (
     <tr>
-      <td data-label="Задача" style={{ minWidth: 140, fontWeight: 600 }}>{task.title}</td>
+      <td data-label="Задача" style={{ minWidth: 140, fontWeight: 600 }}>
+        {task.title}
+        <div style={{ marginTop: 4 }}>
+          <DifficultyControl task={task} isZavuch={isZavuch} onChange={(difficulty) => onChange({ difficulty })} />
+        </div>
+      </td>
       <td data-label="Комментарий" style={{ minWidth: 180, color: "var(--text-soft)" }}>
         {editingComment ? (
           <div style={{ minWidth: 170 }}>
@@ -1742,7 +1768,7 @@ function TaskRow({ task, users, onChange, onRemove }) {
         <select value={task.status} onChange={(e) => handleStatusChange(e.target.value)} style={{ padding: "5px 8px" }}>
           {Object.entries(TASK_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
-        {flash && <span className="sea-points-flash">+{POINTS_PER_TASK}</span>}
+        {flash && <span className="sea-points-flash">+{taskPoints(task)}</span>}
       </td>
       <td data-label="">
         <button className="sea-btn sea-btn-ghost sea-btn-danger" style={{ padding: 6 }} onClick={onRemove}><Trash2 size={13} /></button>
@@ -1762,12 +1788,14 @@ function ArchiveModal({ event, users, onClose, onSave }) {
   const penalties = useMemo(() => {
     const byEmail = {};
     unfinished.forEach((t) => (t.responsible || []).forEach((email) => {
-      byEmail[email] = (byEmail[email] || 0) + 1;
+      const cur = byEmail[email] || { count: 0, points: 0 };
+      byEmail[email] = { count: cur.count + 1, points: cur.points + taskPoints(t) };
     }));
     return Object.entries(byEmail)
-      .map(([email, count]) => ({
+      .map(([email, { count, points }]) => ({
         name: users.find((u) => u.email === email)?.name || email,
         count,
+        points,
       }))
       .sort((a, b) => b.count - a.count);
   }, [event.tasks, users]);
@@ -1806,7 +1834,7 @@ function ArchiveModal({ event, users, onClose, onSave }) {
             <div style={{ display: "grid", gap: 3 }}>
               {penalties.map((p) => (
                 <div key={p.name}>
-                  {p.name} — минус {p.count * POINTS_PER_FAILED_TASK} очков
+                  {p.name} — минус {p.points} очков
                   {p.count > 1 ? ` (${p.count} задачи)` : ""}
                 </div>
               ))}
@@ -2630,7 +2658,7 @@ function ArchiveView({ events, users, run }) {
                       <span style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</span>
                       {failed && (
                         <span className="sea-badge" style={{ color: "var(--danger)", background: "#fff" }}>
-                          не выполнена · −{POINTS_PER_FAILED_TASK}
+                          не выполнена · −{taskPoints(t)}
                         </span>
                       )}
                     </div>
@@ -2647,7 +2675,7 @@ function ArchiveView({ events, users, run }) {
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 6 }}>
               Задачи, оставшиеся невыполненными к моменту архивации, отнимают у ответственных
-              по {POINTS_PER_FAILED_TASK} очков. Если задача на самом деле была выполнена, а статус забыли поменять —
+              столько очков, сколько дали бы при выполнении. Если задача на самом деле была выполнена, а статус забыли поменять —
               отметьте её «Готово» прямо здесь: минус пересчитается в плюс.
             </div>
           </div>
@@ -2707,7 +2735,7 @@ function LeaderboardView({ events, users, ideas, adjustments, isZavuch, run, cur
     <div>
       <SectionHeader
         title="Рейтинг"
-        subtitle={`Игровой зачёт вклада в мероприятия — ${POINTS_PER_TASK} очков за выполненную задачу, ${POINTS_PER_IDEA} за предложенную идею, ${POINTS_PER_APPROVED_IDEA} — если идея одобрена и стала мероприятием. Если мероприятие отмечено проведённым, а задача осталась невыполненной, ответственные теряют ${POINTS_PER_FAILED_TASK} очков.`}
+        subtitle={`Игровой зачёт вклада в мероприятия — за выполненную задачу ${TASK_DIFFICULTY.easy.points}, ${TASK_DIFFICULTY.normal.points} или ${TASK_DIFFICULTY.hard.points} очков в зависимости от сложности (её оценивает завуч), ${POINTS_PER_IDEA} за предложенную идею, ${POINTS_PER_APPROVED_IDEA} — если идея одобрена и стала мероприятием. Если мероприятие отмечено проведённым, а задача осталась невыполненной, ответственные теряют столько же, сколько получили бы за неё.`}
       />
 
       <div style={{ marginBottom: 18 }}>
@@ -2746,7 +2774,7 @@ function LeaderboardView({ events, users, ideas, adjustments, isZavuch, run, cur
                     {u.tasksDone} выполненных задач · {u.ideasProposed} идей предложено{u.ideasApproved > 0 ? ` · ${u.ideasApproved} одобрено` : ""}
                     {u.tasksFailed > 0 && (
                       <span style={{ color: "var(--danger)", fontWeight: 600 }}>
-                        {" · "}{u.tasksFailed} не выполнено (−{u.tasksFailed * POINTS_PER_FAILED_TASK})
+                        {" · "}{u.tasksFailed} не выполнено (−{u.failedPoints})
                       </span>
                     )}
                     {u.adjusted !== 0 && (
@@ -2894,6 +2922,122 @@ function AdjustPointsModal({ user, adjustments, onClose, run }) {
 /* ----------------------------------------------------------------------
    ПОЛЬЗОВАТЕЛИ
 ---------------------------------------------------------------------- */
+/* Сложность задачи: завуч выбирает, остальные только видят. */
+function DifficultyControl({ task, isZavuch, onChange }) {
+  const level = TASK_DIFFICULTY[task.difficulty];
+  if (!isZavuch) {
+    if (!level) return null;
+    return (
+      <span className="sea-chip" style={{ color: level.color, background: level.bg, fontWeight: 600 }}>
+        {level.label} · {level.points}
+      </span>
+    );
+  }
+  return (
+    <select
+      value={task.difficulty || ""}
+      onChange={(e) => onChange(e.target.value)}
+      title="Сложность задачи — от неё зависят очки"
+      style={{ width: "auto", padding: "2px 6px", fontSize: 11.5, fontWeight: 600, color: level ? level.color : "var(--text-faint)" }}
+    >
+      <option value="">Не оценена · {POINTS_PER_TASK}</option>
+      {Object.entries(TASK_DIFFICULTY).map(([k, v]) => <option key={k} value={k}>{v.label} · {v.points}</option>)}
+    </select>
+  );
+}
+
+const REVIEW_FILTERS = [
+  { key: "pending", label: "Ждут оценки" },
+  { key: "rated", label: "Оценённые" },
+  { key: "all", label: "Все задачи" },
+];
+
+function TaskReviewView({ events, users, run }) {
+  const [filter, setFilter] = useState("pending");
+
+  const rows = useMemo(() => {
+    const list = [];
+    events.forEach((ev) => (ev.tasks || []).forEach((t) => list.push({ event: ev, task: t })));
+    return list.sort((a, b) => (b.event.date || "").localeCompare(a.event.date || ""));
+  }, [events]);
+
+  const pending = rows.filter((r) => r.task.status === "done" && !r.task.difficulty);
+  const visible =
+    filter === "pending" ? pending
+    : filter === "rated" ? rows.filter((r) => r.task.difficulty)
+    : rows;
+  const nameOf = (email) => users.find((u) => u.email === email)?.name || email;
+
+  return (
+    <div>
+      <SectionHeader
+        title="Оценка задач"
+        subtitle={`Отметьте, насколько трудной была задача: лёгкая — ${TASK_DIFFICULTY.easy.points} очков, обычная — ${TASK_DIFFICULTY.normal.points}, сложная — ${TASK_DIFFICULTY.hard.points}. Пока задача не оценена, она считается обычной. Сложность можно поставить и заранее — тогда учитель видит её ещё до выполнения.`}
+      />
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        {REVIEW_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            className="sea-chip"
+            style={{ border: "none", cursor: "pointer", padding: "6px 12px", fontSize: 13, background: filter === f.key ? "var(--accent-soft)" : "var(--surface-2)", color: filter === f.key ? "var(--accent)" : "var(--text-soft)", fontWeight: filter === f.key ? 600 : 400 }}
+            onClick={() => setFilter(f.key)}
+          >
+            {f.label}{f.key === "pending" && pending.length > 0 ? ` · ${pending.length}` : ""}
+          </button>
+        ))}
+      </div>
+
+      {visible.length === 0 ? (
+        <EmptyState
+          icon={Star}
+          text={filter === "pending" ? "Все выполненные задачи оценены" : "Задач пока нет"}
+          hint={filter === "pending" ? "Новые появятся здесь, как только учителя отметят задачи «Готово»." : undefined}
+        />
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {visible.map(({ event, task }) => {
+            const status = TASK_STATUS_LABELS[task.status];
+            const names = (task.responsible || []).map(nameOf);
+            return (
+              <div key={task.id} className="sea-card" style={{ padding: "12px 14px", display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{task.title}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>
+                    {event.title} · {fmtDate(event.date)}
+                    {status && <> · <span style={{ color: status.color }}>{status.label}</span></>}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-soft)", marginTop: 4 }}>
+                    {names.length ? names.join(", ") : "без ответственного"}
+                  </div>
+                  {task.comment && (
+                    <div style={{ fontSize: 12.5, color: "var(--text-soft)", marginTop: 4, whiteSpace: "pre-wrap" }}>{task.comment}</div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {Object.entries(TASK_DIFFICULTY).map(([k, v]) => {
+                    const active = task.difficulty === k;
+                    return (
+                      <button
+                        key={k}
+                        className="sea-btn"
+                        style={{ border: `1px solid ${active ? v.color : "var(--border)"}`, background: active ? v.bg : "var(--surface)", color: active ? v.color : "var(--text-soft)", fontWeight: active ? 700 : 500, padding: "6px 10px" }}
+                        onClick={() => run("PATCH", `/api/tasks/${task.id}`, { difficulty: active ? "" : k })}
+                        aria-pressed={active}
+                      >
+                        {v.label} · {v.points}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UsersAdminView({ users, currentUser, isZavuch, run, onEditProfile }) {
   const [resetFor, setResetFor] = useState(null);
 
